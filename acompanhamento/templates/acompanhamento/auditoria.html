@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% load acompanhamento_extras %}
+{% block titulo %}O que falta{% endblock %}
+
+{% block conteudo %}
+<div class="pagina-cabecalho">
+  <div>
+    <h1>O que falta</h1>
+    <p class="subtitulo">
+      Auditoria interna: a lista completa de pendências, nível por nível,
+      pela mesma regra que a certificação usa.
+    </p>
+  </div>
+  <div class="d-flex gap-2 no-print">
+    <button type="button" class="btn btn-outline-primary" onclick="window.print()">
+      <i class="bi bi-printer" aria-hidden="true"></i> Imprimir
+    </button>
+    <a class="btn btn-outline-primary" href="{% url 'dossie' %}">
+      <i class="bi bi-file-earmark-text" aria-hidden="true"></i> Dossiê
+    </a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <div class="rotulo-secao">Como a conta é feita</div>
+    <p class="mb-0 small">
+      Uma prática só conta como <strong>completa</strong> quando está marcada como
+      <strong>Implantada</strong>, tem evidência anexada em <strong>todos os requisitos
+      obrigatórios</strong> e tem medição em <strong>todas as métricas obrigatórias</strong>.
+      Os níveis são acumulativos: para solicitar o CERNE N, os níveis 1 a N precisam
+      estar 100% completos.
+    </p>
+  </div>
+</div>
+
+{% if prontidao.apto_nivel > 0 %}
+  <div class="alert alert-success" role="alert">
+    <strong>O parque está apto a solicitar o CERNE {{ prontidao.apto_nivel }}.</strong>
+    {% if prontidao.proximo_nivel %}
+      Abaixo, o que falta para alcançar o CERNE {{ prontidao.proximo_nivel }}.
+    {% endif %}
+  </div>
+{% else %}
+  <div class="alert alert-warning" role="alert">
+    <strong>Ainda não apto ao CERNE 1.</strong>
+    Complete todas as práticas do nível 1 para ficar apto à primeira certificação.
+  </div>
+{% endif %}
+
+{% for n in prontidao.niveis %}
+<div class="card">
+  <div class="card-body">
+    <div class="card-titulo">
+      <h2><span class="selo-nivel">{{ n.nivel.numero }}</span> CERNE {{ n.nivel.numero }} — {{ n.nivel.nome }}</h2>
+      <span class="pill {{ n.percentual|pill_progresso }}">
+        {{ n.completas }} de {{ n.total }} completas · {{ n.percentual }}%
+      </span>
+    </div>
+
+    <div class="progress mb-3" role="progressbar" aria-valuenow="{{ n.percentual }}"
+         aria-valuemin="0" aria-valuemax="100"
+         aria-label="CERNE {{ n.nivel.numero }}: {{ n.percentual }} por cento completo">
+      <div class="progress-bar {{ n.percentual|classe_progresso }}" style="width:{{ n.percentual }}%"></div>
+    </div>
+
+    {% for p in n.processos %}
+      <details class="bloco" {% if p.percentual < 100 %}open{% endif %}>
+        <summary>
+          <span style="flex:1;min-width:0">{{ p.processo.codigo }} {{ p.processo.nome }}</span>
+          <span class="pill {{ p.percentual|pill_progresso }}">{{ p.completas }}/{{ p.total }}</span>
+        </summary>
+
+        {% for item in p.praticas %}
+          <div class="borda-suave p-2 mb-2">
+            <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+              <span style="flex:1;min-width:0">
+                <span class="marca-estado {% if item.completa %}ok{% else %}andamento{% endif %}" aria-hidden="true">
+                  <i class="bi {% if item.completa %}bi-check-circle-fill{% else %}bi-exclamation-circle{% endif %}"></i>
+                </span>
+                <a href="{% url 'pratica_detail' item.pratica.codigo %}" class="fw-semibold">
+                  {{ item.pratica.codigo }} {{ item.pratica.nome }}
+                </a>
+                <span class="text-muted small">· {{ item.situacao_display }}</span>
+              </span>
+              {% if item.completa %}
+                <span class="pill ok">completa</span>
+              {% else %}
+                <span class="d-flex gap-2 align-items-center">
+                  <span class="pill andamento">{{ item.faltas|length }} pendência{{ item.faltas|length|pluralize }}</span>
+                  {% if pode_registrar %}
+                    <a class="btn btn-sm btn-outline-primary no-print"
+                       href="{% url 'registrar_acao' item.pratica.codigo %}">Registrar</a>
+                  {% endif %}
+                </span>
+              {% endif %}
+            </div>
+
+            {% if not item.completa %}
+              <ul class="text-muted small mb-0 mt-1">
+                {% for f in item.faltas %}<li>{{ f }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </details>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

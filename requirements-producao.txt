@@ -1,0 +1,23 @@
+# Dependências ADICIONAIS para rodar o sistema em um servidor.
+#
+# Instale no servidor com:
+#   pip install -r requirements-producao.txt
+#
+# Elas ficam separadas do requirements.txt porque não são necessárias para
+# desenvolver na sua máquina — e o gunicorn, em particular, não funciona no
+# Windows.
+
+-r requirements.txt
+
+# --- Servidor de aplicação (WSGI) ---
+# O `manage.py runserver` é apenas para desenvolvimento: ele é lento, roda com
+# um processo só e não foi feito para receber acesso real. Em produção, quem
+# executa o Django é o gunicorn.
+#
+# Linux (o caso normal em hospedagem):
+gunicorn==26.2.0
+
+# Windows Server: o gunicorn não roda. Nesse caso, comente a linha acima,
+# descomente a de baixo e sirva com:
+#   waitress-serve --port=8000 config.wsgi:application
+# waitress==3.0.2

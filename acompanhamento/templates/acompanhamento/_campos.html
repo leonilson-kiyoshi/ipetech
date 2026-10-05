@@ -1,0 +1,37 @@
+{% comment %}
+Renderiza os campos de um formulário com rótulo, ajuda e erros.
+
+Uso:
+  {% include "acompanhamento/_campos.html" with form=form_evidencia %}
+  {% include "acompanhamento/_campos.html" with form=form colunas=2 %}
+{% endcomment %}
+
+{% if form.non_field_errors %}
+  <div class="alert alert-danger py-2" role="alert">
+    {% for erro in form.non_field_errors %}<div>{{ erro }}</div>{% endfor %}
+  </div>
+{% endif %}
+
+<div class="{% if colunas %}row g-3{% endif %}">
+  {% for campo in form %}
+    <div class="{% if colunas == 3 %}col-md-4{% elif colunas %}col-md-6{% endif %}{% if not colunas %} mb-3{% endif %}">
+      {% if campo.field.widget.input_type == 'checkbox' %}
+        <div class="form-check mt-2">
+          {{ campo }}
+          <label class="form-check-label" for="{{ campo.id_for_label }}">{{ campo.label }}</label>
+          {% if campo.help_text %}<div class="form-text">{{ campo.help_text }}</div>{% endif %}
+        </div>
+      {% else %}
+        <label class="form-label{% if campo.field.required %} campo-obrigatorio{% endif %}"
+               for="{{ campo.id_for_label }}">{{ campo.label }}</label>
+        {{ campo }}
+        {% if campo.help_text %}<div class="form-text">{{ campo.help_text }}</div>{% endif %}
+      {% endif %}
+      {% if campo.errors %}
+        <ul class="errorlist">
+          {% for erro in campo.errors %}<li>{{ erro }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>

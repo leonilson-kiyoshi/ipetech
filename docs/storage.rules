@@ -1,0 +1,108 @@
+rules_version = '2';
+
+// ============================================================================
+// Regras do Firebase Storage — anexos do Acompanhamento CERNE
+//
+// COMO PUBLICAR
+//   Console do Firebase -> Bancos de dados e armazenamento -> Storage
+//   -> aba Regras -> colar este conteúdo -> Publicar
+//
+// Estas regras usam a MESMA lista de pessoas das regras do Firestore: o papel
+// de cada um está em `usuarios/{email}` no banco, e aqui é consultado com
+// firestore.get(). Assim não existem duas listas de permissão para manter em
+// sincronia — a lista é uma só.
+//
+// O padrão é negar. Nenhum arquivo é público: para abrir um anexo é preciso
+// estar logado e autorizado.
+// ============================================================================
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ---------------------------------------------------------------- apoio
+
+    function logado() {
+      return request.auth != null;
+    }
+
+    // Mesmo e-mail definido nas regras do Firestore. Existe para resolver o
+    // primeiro acesso, antes de haver lista de autorizados.
+    function ehGestorRaiz() {
+      return logado()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email == 'leonilsonk@gmail.com';
+    }
+
+    // A ficha de acesso é identificada pelo e-mail em minúsculas — a mesma
+    // chave usada nas regras do Firestore, para a lista de pessoas ser uma só.
+    function emailDoUsuario() {
+      return logado() && request.auth.token.email != null
+        ? request.auth.token.email.lower()
+        : '';
+    }
+
+    function temFicha() {
+      return logado() && emailDoUsuario() != ''
+        && firestore.exists(/databases/(default)/documents/usuarios/$(emailDoUsuario()));
+    }
+
+    function papel() {
+      return firestore.get(/databases/(default)/documents/usuarios/$(emailDoUsuario())).data.papel;
+    }
+
+    // Pode ver os anexos — inclui o perfil de consulta, porque quem audita
+    // precisa abrir os documentos.
+    function autorizado() {
+      return ehGestorRaiz() || temFicha();
+    }
+
+    // Pode enviar e apagar anexos.
+    function podeRegistrar() {
+      return ehGestorRaiz() || (temFicha() && (papel() == 'gestor' || papel() == 'equipe'));
+    }
+
+    // Limite de tamanho. Vale o que o servidor diz: a conferência feita no
+    // navegador serve para dar mensagem clara, mas pode ser burlada.
+    function tamanhoAceito() {
+      return request.resource.size > 0
+        && request.resource.size < 20 * 1024 * 1024;
+    }
+
+    // Tipos aceitos. Documentos, planilhas, apresentações, imagens, áudio,
+    // vídeo e ZIP. Fora da lista não entra — em especial, nada que o
+    // navegador execute como página (HTML, SVG), para o anexo de um usuário
+    // não poder rodar script no endereço do sistema.
+    function tipoAceito() {
+      return request.resource.contentType.matches('application/pdf')
+        || request.resource.contentType.matches('image/(png|jpeg|gif|webp)')
+        || request.resource.contentType.matches('audio/.*')
+        || request.resource.contentType.matches('video/.*')
+        || request.resource.contentType.matches('text/plain')
+        || request.resource.contentType.matches('text/csv')
+        || request.resource.contentType.matches('application/zip')
+        || request.resource.contentType.matches('application/msword')
+        || request.resource.contentType.matches('application/vnd\\.ms-.*')
+        || request.resource.contentType.matches('application/vnd\\.openxmlformats-officedocument\\..*')
+        || request.resource.contentType.matches('application/vnd\\.oasis\\.opendocument\\..*')
+        || request.resource.contentType.matches('application/rtf');
+    }
+
+    // ------------------------------------------------------------ evidências
+    // Caminho: evidencias/CERNE1/1.1.1/2026/arquivo.pdf
+    // A estrutura é a mesma do sistema Django, para quem abrir o bucket
+    // encontrar os documentos na ordem em que a auditoria pede.
+
+    match /evidencias/{nivel}/{pratica}/{ano}/{arquivo} {
+      allow read: if autorizado();
+      allow create, update: if podeRegistrar() && tamanhoAceito() && tipoAceito();
+      allow delete: if podeRegistrar();
+    }
+
+    // ------------------------------------------------------------- o resto
+    // Caminho não previsto acima não é acessível, de propósito.
+
+    match /{todos=**} {
+      allow read, write: if false;
+    }
+  }
+}

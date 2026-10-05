@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block titulo %}Configuração{% endblock %}
+
+{% block conteudo %}
+<div class="pagina-cabecalho">
+  <div>
+    <h1>Configuração</h1>
+    <p class="subtitulo">Dados do parque e informações técnicas do sistema.</p>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-body">
+        <div class="card-titulo">
+          <h2><i class="bi bi-geo-alt-fill" aria-hidden="true"></i> Identificação do parque</h2>
+        </div>
+        <p class="text-muted small">
+          Este nome aparece no topo do sistema e na capa do dossiê de auditoria.
+        </p>
+        <form method="post">
+          {% csrf_token %}
+          {% include "acompanhamento/_campos.html" with form=form colunas=2 %}
+          <button type="submit" class="btn btn-primary mt-3">
+            <i class="bi bi-check-lg" aria-hidden="true"></i> Salvar
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-body">
+        <div class="rotulo-secao">Catálogo carregado</div>
+        <ul class="list-unstyled mb-0 small">
+          <li class="d-flex justify-content-between border-bottom py-2">
+            <span class="text-muted">Versão do modelo</span><span>{{ versao.nome|default:"—" }}</span>
+          </li>
+          <li class="d-flex justify-content-between border-bottom py-2">
+            <span class="text-muted">Evidências registradas</span><span>{{ total_evidencias }}</span>
+          </li>
+          <li class="d-flex justify-content-between py-2">
+            <span class="text-muted">Medições registradas</span><span>{{ total_medicoes }}</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div class="rotulo-secao">Pasta dos arquivos</div>
+        <p><span class="caminho-pasta">{{ pasta_media }}</span></p>
+        <p class="text-muted small mb-0">
+          Faça backup desta pasta junto com o banco de dados. Ela guarda todas as
+          evidências anexadas. Veja a listagem em <a href="{% url 'arquivos' %}">Arquivos</a>.
+        </p>
+      </div>
+    </div>
+
+    {% if outros_mecanismos %}
+    <div class="card">
+      <div class="card-body">
+        <div class="rotulo-secao">Outros registros no banco</div>
+        <p class="text-muted small">
+          O sistema acompanha apenas o parque acima. Estes outros registros existem
+          no banco mas não são usados pelas telas:
+        </p>
+        <ul class="small mb-0">
+          {% for m in outros_mecanismos %}
+            <li>
+              {{ m.nome }}
+              {% if m.eh_exemplo %}<span class="pill destaque">exemplo</span>{% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+        {% if user.is_superuser %}
+          <p class="text-muted small mt-2 mb-0">
+            Para removê-los, use o <a href="/admin/acompanhamento/mecanismo/">admin avançado</a>.
+          </p>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

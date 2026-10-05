@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% block titulo %}Como preencher{% endblock %}
+
+{% block conteudo %}
+<div class="pagina-cabecalho">
+  <div>
+    <h1>Como preencher</h1>
+    <p class="subtitulo">
+      O passo a passo para registrar o trabalho do parque de um jeito que a
+      auditoria do CERNE aceite.
+    </p>
+  </div>
+  {% if pode_registrar %}
+  <a class="btn btn-destaque no-print" href="{% url 'registrar' %}">
+    <i class="bi bi-plus-lg" aria-hidden="true"></i> Registrar ação
+  </a>
+  {% endif %}
+</div>
+
+<!-- ============ A REGRA ============ -->
+<div class="card">
+  <div class="card-body">
+    <div class="card-titulo">
+      <h2><i class="bi bi-bullseye" aria-hidden="true"></i> A regra que vale</h2>
+    </div>
+    <p>
+      O CERNE avalia a capacidade do parque de gerar, de forma sistemática,
+      empreendimentos inovadores bem-sucedidos. São <strong>4 níveis acumulativos</strong>:
+      para pedir o CERNE 2, tudo do nível 1 <em>e</em> do 2 precisa estar pronto.
+    </p>
+    <p class="mb-2">Neste sistema, uma prática só conta como <strong>completa</strong> quando:</p>
+    <div class="row g-2">
+      <div class="col-md-4">
+        <div class="borda-suave p-3 h-100">
+          <span class="icone verde mb-2" aria-hidden="true"><i class="bi bi-flag-fill"></i></span>
+          <div class="fw-semibold">1. Está implantada</div>
+          <div class="small text-muted">A situação da prática está marcada como “Implantada”.</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="borda-suave p-3 h-100">
+          <span class="icone azul mb-2" aria-hidden="true"><i class="bi bi-paperclip"></i></span>
+          <div class="fw-semibold">2. Tem as evidências</div>
+          <div class="small text-muted">
+            Todo requisito <strong>obrigatório</strong> tem ao menos uma evidência anexada
+            <em>e vinculada a ele</em>.
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="borda-suave p-3 h-100">
+          <span class="icone amarelo mb-2" aria-hidden="true"><i class="bi bi-graph-up"></i></span>
+          <div class="fw-semibold">3. Tem os números</div>
+          <div class="small text-muted">
+            Toda métrica <strong>obrigatória</strong> tem ao menos uma medição lançada.
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="dica mt-3">
+      <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+      <strong>O detalhe que mais escapa:</strong> anexar um arquivo sem escolher a qual
+      requisito ele se refere. A evidência fica salva, mas não conta para a prontidão.
+      Sempre selecione o requisito.
+    </div>
+  </div>
+</div>
+
+<!-- ============ O PASSO A PASSO ============ -->
+<div class="card">
+  <div class="card-body">
+    <div class="card-titulo">
+      <h2><i class="bi bi-list-ol" aria-hidden="true"></i> O passo a passo do dia a dia</h2>
+    </div>
+
+    <p class="text-muted">
+      O caminho mais curto: sempre que o parque fizer algo relevante, registre na hora.
+      O dossiê se monta sozinho a partir desses registros.
+    </p>
+
+    <div class="linha-tempo">
+      <div class="evento">
+        <div class="fw-semibold">1. Abra “Registrar ação”</div>
+        <div class="small text-muted">
+          No menu, botão amarelo. Ou vá em <a href="{% url 'auditoria' %}">O que falta</a>
+          para ver onde o esforço tem mais efeito agora.
+        </div>
+      </div>
+      <div class="evento">
+        <div class="fw-semibold">2. Escolha a prática-chave</div>
+        <div class="small text-muted">
+          A qual item do CERNE essa ação se refere. Se estiver em dúvida, procure pelo
+          assunto em <a href="{% url 'catalogo' %}">Práticas-chave</a>.
+        </div>
+      </div>
+      <div class="evento">
+        <div class="fw-semibold">3. Descreva o que foi feito</div>
+        <div class="small text-muted">
+          Título curto e objetivo (“Palestra de sensibilização no IFSULDEMINAS”), a data
+          real do acontecido e quem conduziu.
+        </div>
+      </div>
+      <div class="evento">
+        <div class="fw-semibold">4. Anexe a comprovação</div>
+        <div class="small text-muted">
+          Lista de presença, fotos, ata, relatório, print da divulgação. Pode ser arquivo
+          ou link, se o documento já estiver no Drive ou na rede do parque.
+          <strong>Escolha o requisito que essa comprovação atende.</strong>
+        </div>
+      </div>
+      <div class="evento">
+        <div class="fw-semibold">5. Lance o número, se houver</div>
+        <div class="small text-muted">
+          Se a ação gerou uma medida (80 pessoas, 12 propostas, R$ 50 mil captados),
+          lance a métrica no mesmo envio.
+        </div>
+      </div>
+      <div class="evento">
+        <div class="fw-semibold">6. De tempo em tempo, faça a revisão crítica</div>
+        <div class="small text-muted">
+          O CERNE quer ver o parque avaliando os próprios resultados: deu certo?
+          Foi eficiente? Precisa ajustar? Registre na prática, em “Revisões críticas”,
+          e abra planos de ação para o que precisa melhorar.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ BOAS PRÁTICAS ============ -->
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="card-titulo"><h2><i class="bi bi-hand-thumbs-up" aria-hidden="true"></i> Faça assim</h2></div>
+        <ul class="mb-0">
+          <li>Registre <strong>no dia</strong>, ou na mesma semana. Evidência reconstruída meses depois perde qualidade.</li>
+          <li>Use a <strong>data real</strong> do acontecido no campo de data, não a data em que você está digitando.</li>
+          <li>Título que uma pessoa de fora entenda sem contexto.</li>
+          <li>Prefira <strong>anexar o arquivo</strong> a usar link: o arquivo fica guardado no servidor do parque e sob seu controle.</li>
+          <li>Sempre vincule ao <strong>requisito</strong>.</li>
+          <li>Um documento por evidência. Se a ação gerou lista de presença e fotos, registre as duas separadamente.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="card-titulo"><h2><i class="bi bi-x-circle" aria-hidden="true"></i> Evite</h2></div>
+        <ul class="mb-0">
+          <li>Marcar a prática como “Implantada” sem ter as evidências. O sistema não impede, mas a auditoria vai cobrar.</li>
+          <li>Anexar sem escolher o requisito.</li>
+          <li>Links para pastas pessoais que só você acessa.</li>
+          <li>Arquivos com nomes genéricos como “documento final (2).pdf”.</li>
+          <li>Deixar as métricas obrigatórias sem nenhuma medição: elas travam o nível inteiro.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ EXEMPLO CONCRETO ============ -->
+{% if exemplar %}
+<div class="card">
+  <div class="card-body">
+    <div class="card-titulo">
+      <h2><i class="bi bi-stars" aria-hidden="true"></i> Um exemplo completo</h2>
+    </div>
+    <p class="mb-2">
+      Prática <strong>{{ exemplar.codigo }} {{ exemplar.nome }}</strong>. Suponha que o
+      parque deu uma palestra para 80 alunos:
+    </p>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <tbody>
+          <tr>
+            <th style="width:30%">O que foi feito</th>
+            <td>Palestra de sensibilização no IFSULDEMINAS</td>
+          </tr>
+          <tr><th>Quando</th><td>a data real da palestra</td></tr>
+          <tr><th>Quem conduziu</th><td>o nome de quem ministrou</td></tr>
+          <tr><th>Detalhes</th><td>local, público (80 alunos de engenharia), resultado (5 propostas)</td></tr>
+          <tr><th>Requisito</th><td>“Registros das ações de sensibilização”</td></tr>
+          <tr><th>Arquivo</th><td>lista de presença digitalizada + fotos</td></tr>
+          <tr><th>Métrica</th><td>Quantidade de pessoas sensibilizadas = <strong>80</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <a class="btn btn-outline-primary btn-sm" href="{% url 'pratica_detail' exemplar.codigo %}">
+      <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
+      Abrir a prática {{ exemplar.codigo }} no sistema
+    </a>
+    {% if pode_registrar %}
+      <a class="btn btn-destaque btn-sm" href="{% url 'registrar_acao' exemplar.codigo %}">
+        <i class="bi bi-plus-lg" aria-hidden="true"></i> Registrar nesta prática
+      </a>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<!-- ============ ONDE FICAM OS DADOS ============ -->
+<div class="card">
+  <div class="card-body">
+    <div class="card-titulo">
+      <h2><i class="bi bi-database" aria-hidden="true"></i> Onde tudo isso fica guardado</h2>
+    </div>
+    <p>
+      Os registros vão para o <strong>banco de dados</strong> do sistema, com a data e o
+      nome de quem registrou — é isso que forma a trilha de auditoria.
+      Os arquivos anexados vão para uma <strong>pasta organizada por nível, prática e ano</strong>
+      no servidor do parque.
+    </p>
+    <p class="mb-0">
+      Veja a listagem completa em <a href="{% url 'arquivos' %}">Arquivos</a>. Quando chegar a
+      hora da certificação, o <a href="{% url 'dossie' %}">Dossiê</a> reúne tudo em um único
+      documento, pronto para imprimir ou salvar em PDF.
+    </p>
+  </div>
+</div>
+{% endblock %}

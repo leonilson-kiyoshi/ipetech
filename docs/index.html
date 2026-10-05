@@ -1,0 +1,73 @@
+﻿<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acompanhamento CERNE · IpêTech</title>
+  <meta name="description" content="Sistema de acompanhamento da implantação do modelo CERNE no IpêTech — Parque Tecnológico dos Ipês (UFLA, Câmpus Paraíso): práticas-chave, evidências, métricas e dossiê de certificação.">
+  <meta name="color-scheme" content="light">
+  <link rel="icon" href="img/logo-96.jpg">
+
+  <!-- O ?v= serve de "quebra-cache": ao mudar o número, o navegador é
+       obrigado a buscar o arquivo novo em vez de reaproveitar o guardado.
+       Aumente o número sempre que publicar uma correção. -->
+  <link rel="stylesheet" href="css/app.css?v=12">
+</head>
+<body>
+  <a class="pular" href="#conteudo">Pular para o conteúdo</a>
+
+  <header class="topo">
+    <a class="marca" href="#/">
+      <span class="logo">
+        <img src="img/logo-96.jpg" width="34" height="34"
+             alt="IpêTech — Parque Tecnológico dos Ipês">
+      </span>
+      <span class="marca-texto">
+        <span class="marca-nome">IpêTech</span>
+        <span class="marca-sub">Acompanhamento CERNE</span>
+      </span>
+    </a>
+    <span class="parque" id="topo-parque">—</span>
+
+    <div class="espaco"></div>
+
+    <!-- Preenchido pelo nuvem.js com o nome, o papel e o botão de sair.
+         O perfil vem do servidor: não é escolha do usuário. -->
+    <div class="topo-acoes" id="usuario-caixa"></div>
+  </header>
+
+  <div class="corpo">
+    <aside class="menu nao-imprimir" id="menu"></aside>
+    <main class="conteudo" id="conteudo" tabindex="-1">
+      <noscript>
+        <div class="aviso erro">
+          <strong>Este sistema precisa de JavaScript.</strong>
+          Habilite o JavaScript no navegador para usar o acompanhamento.
+        </div>
+      </noscript>
+    </main>
+  </div>
+
+  <div class="torrada" id="torrada" role="status" aria-live="polite"></div>
+
+  <!-- Portão de entrada: cobre a tela até o login ser concluído e os dados
+       carregarem. Começa visível para que nada do parque apareça antes. -->
+  <div class="portao" id="portao"></div>
+
+  <!-- A ordem importa:
+       dados-cerne.js     o catálogo CERNE (gerado pelo Django)
+       regras.js          a regra de prontidão, usada pelos dois modos
+       firebase-config.js identificação do projeto; marca o modo nuvem
+       app.js             as telas (não inicia sozinho no modo nuvem)
+       nuvem.js           módulo: login, Firestore e partida do app -->
+  <script src="js/dados-cerne.js?v=12"></script>
+  <script src="js/regras.js?v=12"></script>
+  <script src="js/firebase-config.js?v=12"></script>
+  <script src="js/app.js?v=12"></script>
+  <script type="module" src="js/nuvem.js?v=12"></script>
+
+  <noscript>
+    <style>.portao { display: none !important; }</style>
+  </noscript>
+</body>
+</html>

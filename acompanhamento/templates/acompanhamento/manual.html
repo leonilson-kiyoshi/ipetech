@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block titulo %}Manual{% endblock %}
+
+{% block conteudo %}
+<div class="pagina-cabecalho">
+  <div>
+    <h1>Manual do sistema</h1>
+    <p class="subtitulo">
+      Para quem administra o IpêTech Paraíso: perfis de acesso, backup e
+      manutenção do sistema.
+    </p>
+  </div>
+  <button type="button" class="btn btn-outline-primary no-print" onclick="window.print()">
+    <i class="bi bi-printer" aria-hidden="true"></i> Imprimir
+  </button>
+</div>
+
+<div class="dica">
+  <i class="bi bi-info-circle-fill" aria-hidden="true"></i>
+  Se você veio buscar <strong>como registrar</strong> as ações do parque, o lugar certo é
+  <a href="{% url 'guia' %}">Como preencher</a>. Esta página trata da administração.
+</div>
+
+<!-- ============ AS TELAS ============ -->
+<div class="card">
+  <div class="card-body">
+    <div class="card-titulo"><h2><i class="bi bi-window-stack" aria-hidden="true"></i> As telas</h2></div>
+    <div class="table-responsive">
+      <table class="table">
+        <thead><tr><th style="width:26%">Tela</th><th>Para que serve</th></tr></thead>
+        <tbody>
+          <tr>
+            <th><a href="{% url 'registrar' %}">Registrar ação</a></th>
+            <td>Ponto de partida do técnico. Registra o que o parque fez, anexa a
+              comprovação e já lança a métrica, em um único envio.</td>
+          </tr>
+          <tr>
+            <th><a href="{% url 'catalogo' %}">Práticas-chave</a></th>
+            <td>As 29 práticas do CERNE, com busca e filtro. Cada uma abre a tela de
+              trabalho completa.</td>
+          </tr>
+          <tr>
+            <th><a href="{% url 'empreendimentos' %}">Empreendimentos</a></th>
+            <td>Empresas apoiadas e a avaliação delas nos cinco eixos, com radar.</td>
+          </tr>
+          <tr>
+            <th><a href="{% url 'arquivos' %}">Arquivos</a></th>
+            <td>Todas as evidências e o caminho real de cada arquivo no servidor.</td>
+          </tr>
+          <tr>
+            <th><a href="{% url 'dashboard' %}">Painel</a></th>
+            <td>Nível pelo qual o parque está apto, progresso por nível e atividade recente.</td>
+          </tr>
+          <tr>
+            <th><a href="{% url 'auditoria' %}">O que falta</a></th>
+            <td>Auditoria interna: todas as pendências, com link para resolver cada uma.</td>
+          </tr>
+          <tr>
+            <th><a href="{% url 'dossie' %}">Dossiê</a></th>
+            <td>Documento consolidado para a certificação. Imprime ou baixa em PDF.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ============ PERFIS ============ -->
+<div class="card">
+  <div class="card-body">
+    <div class="card-titulo"><h2><i class="bi bi-people-fill" aria-hidden="true"></i> Perfis de acesso</h2></div>
+    <p class="text-muted">
+      Cada pessoa tem seu próprio usuário e senha, e tudo que ela registra fica
+      marcado com o nome dela. É isso que dá rastreabilidade ao dossiê.
+    </p>
+    <div class="table-responsive">
+      <table class="table">
+        <thead><tr><th>Perfil</th><th>Pode fazer</th><th>Como atribuir</th></tr></thead>
+        <tbody>
+          <tr>
+            <th><span class="pill ok">Gestor</span></th>
+            <td>Tudo, incluindo configuração do parque e administração de usuários.</td>
+            <td>Grupo <code>Gestor</code> + marcar “Membro da equipe”.</td>
+          </tr>
+          <tr>
+            <th><span class="pill verde-escuro">Equipe</span></th>
+            <td>Registrar ações, evidências, métricas, revisões e empreendimentos.
+              É o perfil do técnico.</td>
+            <td>Grupo <code>Equipe</code>.</td>
+          </tr>
+          <tr>
+            <th><span class="pill parado">Auditor</span></th>
+            <td>Apenas consultar e gerar o dossiê. Não altera nada.</td>
+            <td>Grupo <code>Auditor</code>.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="exemplo">
+      <strong>Para criar os grupos</strong> (uma vez só, no servidor):
+      <code>python manage.py criar_perfis</code>.
+      Depois, cadastre as pessoas em <a href="/admin/auth/user/">Usuários</a> e coloque
+      cada uma no grupo certo.
+    </div>
+  </div>
+</div>
+
+<!-- ============ PRIMEIROS PASSOS ============ -->
+<div class="card">
+  <div class="card-body">
+    <div class="card-titulo"><h2><i class="bi bi-rocket" aria-hidden="true"></i> Primeiros passos em uma instalação nova</h2></div>
+    <ol>
+      <li class="mb-2"><strong>Carregar o catálogo CERNE:</strong>
+        <code>python manage.py seed_cerne</code>. Traz os 4 níveis, 12 processos,
+        29 práticas, requisitos e métricas.</li>
+      <li class="mb-2"><strong>Criar o usuário gestor:</strong>
+        <code>python manage.py createsuperuser</code>.</li>
+      <li class="mb-2"><strong>Criar os perfis:</strong>
+        <code>python manage.py criar_perfis</code>.</li>
+      <li class="mb-2"><strong>Conferir os dados do parque:</strong>
+        em <a href="{% url 'configuracao' %}">Configuração</a>, ajuste nome, cidade e
+        nível almejado.</li>
+      <li class="mb-2"><strong>Cadastrar a equipe:</strong> um usuário por pessoa,
+        no grupo <code>Equipe</code>.</li>
+      <li><strong>Começar a registrar:</strong> a equipe usa
+        <a href="{% url 'registrar' %}">Registrar ação</a> no dia a dia.</li>
+    </ol>
+  </div>
+</div>
+
+<!-- ============ BACKUP ============ -->
+<div class="card">
+  <div class="card-body">
+    <div class="card-titulo"><h2><i class="bi bi-shield-check" aria-hidden="true"></i> Backup</h2></div>
+    <p>
+      São <strong>duas coisas</strong> para salvar, e precisam ser salvas juntas:
+    </p>
+    <ol>
+      <li class="mb-2"><strong>O banco de dados</strong> — todos os registros, situações,
+        medições e a trilha de quem fez o quê.
+        Use <code>python manage.py backup</code>, que grava em <code>backups/</code>.</li>
+      <li><strong>A pasta dos arquivos</strong> — as evidências anexadas.
+        O caminho aparece em <a href="{% url 'arquivos' %}">Arquivos</a> e em
+        <a href="{% url 'configuracao' %}">Configuração</a>.</li>
+    </ol>
+    <div class="dica">
+      <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+      Backup do banco sem a pasta de arquivos gera um dossiê com evidências
+      quebradas. Salve os dois, na mesma rotina.
+    </div>
+  </div>
+</div>
+
+<!-- ============ MANUTENÇÃO ============ -->
+<div class="card">
+  <div class="card-body">
+    <div class="card-titulo"><h2><i class="bi bi-tools" aria-hidden="true"></i> Manutenção</h2></div>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead><tr><th style="width:42%">Comando</th><th>O que faz</th></tr></thead>
+        <tbody>
+          <tr><td><code>python manage.py runserver</code></td><td>Sobe o sistema para uso local.</td></tr>
+          <tr><td><code>python manage.py backup</code></td><td>Backup do banco em <code>backups/</code>.</td></tr>
+          <tr><td><code>python manage.py seed_cerne</code></td><td>Recarrega/atualiza o catálogo CERNE.</td></tr>
+          <tr><td><code>python manage.py criar_perfis</code></td><td>Cria/atualiza os grupos de permissão.</td></tr>
+          <tr><td><code>python manage.py changepassword USUARIO</code></td><td>Redefine a senha de alguém.</td></tr>
+          <tr><td><code>python manage.py exportar_web</code></td><td>Atualiza o catálogo da versão web estática (pasta <code>docs/</code>).</td></tr>
+          <tr><td><code>python manage.py test</code></td><td>Roda os testes automatizados.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="text-muted small mb-0">
+      No Windows, os comandos começam com <code>.\.venv\Scripts\python.exe</code> em vez
+      de <code>python</code>, se você não ativou o ambiente virtual.
+    </p>
+  </div>
+</div>
+
+<!-- ============ ADMIN AVANÇADO ============ -->
+{% if user.is_superuser %}
+<div class="card">
+  <div class="card-body">
+    <div class="card-titulo"><h2><i class="bi bi-sliders" aria-hidden="true"></i> Admin avançado</h2></div>
+    <p class="mb-2">
+      O <a href="/admin/">admin do Django</a> existe para casos que as telas não cobrem:
+      corrigir o catálogo CERNE, gerenciar usuários e grupos, apagar registros em lote.
+    </p>
+    <p class="text-muted small mb-0">
+      No uso normal, a equipe <strong>não precisa</strong> do admin: tudo que é rotina
+      está nas telas do sistema.
+    </p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

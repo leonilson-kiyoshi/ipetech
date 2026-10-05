@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% load acompanhamento_extras %}
+{% block titulo %}Arquivos{% endblock %}
+
+{% block conteudo %}
+<div class="pagina-cabecalho">
+  <div>
+    <h1>Arquivos das evidências</h1>
+    <p class="subtitulo">
+      Tudo o que foi anexado, e onde cada arquivo está guardado no servidor.
+    </p>
+  </div>
+  {% if pode_registrar %}
+  <a class="btn btn-destaque no-print" href="{% url 'registrar' %}">
+    <i class="bi bi-plus-lg" aria-hidden="true"></i> Registrar ação
+  </a>
+  {% endif %}
+</div>
+
+<div class="row g-3">
+  <div class="col-6 col-lg-3">
+    <div class="card h-100"><div class="card-body indicador-caixa">
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <span class="icone azul" aria-hidden="true"><i class="bi bi-paperclip"></i></span>
+        <span class="rotulo">Evidências</span>
+      </div>
+      <div class="numero">{{ total_evidencias }}</div>
+    </div></div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card h-100"><div class="card-body indicador-caixa">
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <span class="icone verde" aria-hidden="true"><i class="bi bi-file-earmark-check"></i></span>
+        <span class="rotulo">Com arquivo</span>
+      </div>
+      <div class="numero">{{ total_com_arquivo }}</div>
+    </div></div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card h-100"><div class="card-body indicador-caixa">
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <span class="icone cinza" aria-hidden="true"><i class="bi bi-link-45deg"></i></span>
+        <span class="rotulo">Só link</span>
+      </div>
+      <div class="numero">{{ total_links }}</div>
+    </div></div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card h-100"><div class="card-body indicador-caixa">
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <span class="icone amarelo" aria-hidden="true"><i class="bi bi-hdd"></i></span>
+        <span class="rotulo">Espaço usado</span>
+      </div>
+      <div class="numero">{{ total_mb }}<small> MB</small></div>
+    </div></div>
+  </div>
+</div>
+
+<!-- ============ ONDE FICAM ============ -->
+<div class="card mt-3">
+  <div class="card-body">
+    <div class="card-titulo">
+      <h2><i class="bi bi-folder2-open" aria-hidden="true"></i> Onde os arquivos ficam</h2>
+      {% if pasta_existe %}
+        <span class="pill ok">pasta encontrada</span>
+      {% else %}
+        <span class="pill parado">pasta ainda não criada</span>
+      {% endif %}
+    </div>
+    {% if usando_gcs %}
+      <p class="mb-2">Os arquivos ficam no Google Cloud Storage, no bucket:</p>
+      <p><span class="caminho-pasta">gs://{{ bucket }}</span></p>
+      <p class="text-muted small mb-0">
+        Dentro dele, organizados por nível, prática e ano:
+        <span class="caminho-pasta">evidencias/CERNE1/1.1.1/2026/lista-de-presenca.pdf</span>.
+        Para navegar nas pastas, abra o bucket no console do Google Cloud
+        (<em>Cloud Storage → Buckets</em>) — a tela de lá funciona como um
+        explorador de arquivos.
+      </p>
+    {% else %}
+      <p class="mb-2">Pasta raiz no servidor:</p>
+      <p><span class="caminho-pasta">{{ pasta_media }}</span></p>
+      <p class="text-muted small mb-0">
+        Dentro dela, os arquivos são organizados automaticamente por nível, prática e ano:
+        <span class="caminho-pasta">evidencias/CERNE1/1.1.1/2026/lista-de-presenca.pdf</span>.
+        Essa estrutura é intencional: quem for auditar encontra os documentos na mesma
+        ordem em que a certificação pede, mesmo abrindo a pasta direto no servidor.
+        {% if not pasta_existe %}
+          A pasta é criada no primeiro upload.
+        {% endif %}
+      </p>
+    {% endif %}
+    <p class="text-muted small mt-2 mb-0">
+      <i class="bi bi-shield-lock" aria-hidden="true"></i>
+      Os anexos só são entregues a quem está logado no sistema — não existe link
+      público para eles.
+    </p>
+  </div>
+</div>
+
+<!-- ============ LISTAGEM ============ -->
+{% for grupo in grupos %}
+<div class="card">
+  <div class="card-body">
+    <div class="card-titulo">
+      <h2><span class="selo-nivel">{{ grupo.numero }}</span> CERNE {{ grupo.numero }} — {{ grupo.nome }}</h2>
+    </div>
+
+    {% for pratica, lista in grupo.praticas %}
+      <details class="bloco" open>
+        <summary>
+          <span style="flex:1;min-width:0">
+            <a href="{% url 'pratica_detail' pratica.codigo %}">{{ pratica.codigo }} {{ pratica.nome }}</a>
+          </span>
+          <span class="pill verde-escuro">{{ lista|length }} evidência{{ lista|length|pluralize }}</span>
+        </summary>
+
+        {% for e in lista %}
+          <div class="arquivo-item">
+            {% if e.arquivo %}
+              <span class="tipo {{ e.arquivo.name|tipo_arquivo }}" aria-hidden="true">
+                <i class="bi {{ e.arquivo.name|icone_arquivo }}"></i>
+              </span>
+            {% else %}
+              <span class="tipo link" aria-hidden="true"><i class="bi bi-link-45deg"></i></span>
+            {% endif %}
+
+            <div class="corpo">
+              <div class="nome">
+                {% if e.arquivo %}
+                  <a href="{% url 'evidencia_arquivo' e.pk %}" target="_blank" rel="noopener">{{ e.titulo }}</a>
+                {% elif e.link %}
+                  <a href="{{ e.link }}" target="_blank" rel="noopener noreferrer">{{ e.titulo }}</a>
+                {% else %}
+                  {{ e.titulo }}
+                {% endif %}
+              </div>
+              <div class="apoio">
+                {{ e.data_referencia|date:"d/m/Y"|default:"sem data" }}
+                {% if e.responsavel %}· {{ e.responsavel }}{% endif %}
+                {% if e.requisito %}
+                  <br><i class="bi bi-check2-circle text-success" aria-hidden="true"></i>
+                  vinculada a um requisito
+                {% else %}
+                  <br><i class="bi bi-exclamation-circle text-warning" aria-hidden="true"></i>
+                  sem requisito vinculado (não conta para a prontidão)
+                {% endif %}
+                {% if e.arquivo %}
+                  <br><span class="caminho-pasta">{{ e.arquivo.name|pasta_do_arquivo }}/</span>
+                  <strong class="small">{{ e.arquivo.name|nome_do_arquivo }}</strong>
+                {% elif e.link %}
+                  <br><span class="text-muted small quebrar">{{ e.link }}</span>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </details>
+    {% endfor %}
+  </div>
+</div>
+{% empty %}
+  <div class="vazio-estado">
+    <i class="bi bi-folder-x" aria-hidden="true"></i>
+    Nenhuma evidência registrada ainda.
+    {% if pode_registrar %}
+      <div class="mt-2">
+        <a class="btn btn-destaque btn-sm" href="{% url 'registrar' %}">Registrar a primeira ação</a>
+      </div>
+    {% endif %}
+  </div>
+{% endfor %}
+{% endblock %}

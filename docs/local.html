@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acompanhamento CERNE · modo local</title>
+  <meta name="description" content="Modo local do Acompanhamento CERNE: funciona sem internet e sem conta, guardando os dados apenas neste navegador.">
+  <meta name="color-scheme" content="light">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <a class="pular" href="#conteudo">Pular para o conteúdo</a>
+
+  <header class="topo">
+    <a class="marca" href="#/">
+      <span class="logo" aria-hidden="true">✓</span>
+      <span>Acompanhamento CERNE</span>
+    </a>
+    <span class="parque" id="topo-parque">—</span>
+
+    <div class="espaco"></div>
+
+    <div class="topo-acoes">
+      <span class="pequeno" style="color:#9fb0c2" id="rotulo-perfil">Perfil:</span>
+      <div class="perfil-caixa" role="group" aria-labelledby="rotulo-perfil">
+        <button type="button" id="perfil-gestor" aria-pressed="true">Gestor</button>
+        <button type="button" id="perfil-consulta" aria-pressed="false">Consulta</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="corpo">
+    <aside class="menu nao-imprimir" id="menu"></aside>
+    <main class="conteudo" id="conteudo" tabindex="-1">
+      <noscript>
+        <div class="aviso erro">
+          <strong>Este sistema precisa de JavaScript.</strong>
+          Habilite o JavaScript no navegador para usar o acompanhamento.
+        </div>
+      </noscript>
+
+      <div class="aviso atencao nao-imprimir">
+        <strong>Modo local.</strong> Os dados ficam só neste navegador, sem login e sem
+        compartilhamento. Serve para trabalhar sem internet ou para conhecer o sistema.
+        Para o acompanhamento de verdade da equipe, use a
+        <a href="index.html">versão com login</a>.
+      </div>
+    </main>
+  </div>
+
+  <div class="torrada" id="torrada" role="status" aria-live="polite"></div>
+
+  <!-- Modo local: sem firebase-config.js, então o app.js inicia sozinho
+       e usa o store.js (localStorage). -->
+  <script src="js/dados-cerne.js"></script>
+  <script src="js/regras.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

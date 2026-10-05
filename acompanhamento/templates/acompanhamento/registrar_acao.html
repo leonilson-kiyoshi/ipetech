@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block titulo %}Registrar · {{ pratica.codigo }}{% endblock %}
+
+{% block conteudo %}
+<nav aria-label="Trilha de navegação">
+  <ol class="breadcrumb small">
+    <li class="breadcrumb-item"><a href="{% url 'registrar' %}">Registrar</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'catalogo' %}">Práticas</a></li>
+    <li class="breadcrumb-item">CERNE {{ nivel.numero }}</li>
+    <li class="breadcrumb-item active" aria-current="page">{{ pratica.codigo }}</li>
+  </ol>
+</nav>
+
+<div class="pagina-cabecalho">
+  <div>
+    <h1><span class="selo-nivel">{{ nivel.numero }}</span> {{ pratica.codigo }} {{ pratica.nome }}</h1>
+    <p class="subtitulo">{{ processo.codigo }} {{ processo.nome }}</p>
+  </div>
+  <a class="btn btn-outline-secondary" href="{% url 'pratica_detail' pratica.codigo %}">
+    <i class="bi bi-list-ul" aria-hidden="true"></i> Ver tudo desta prática
+  </a>
+</div>
+
+{% if pratica.orientacao_preenchimento %}
+<div class="dica mb-3">
+  <strong><i class="bi bi-lightbulb-fill" aria-hidden="true"></i> Como preencher esta prática</strong>
+  <div class="mt-1">{{ pratica.orientacao_preenchimento }}</div>
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-body">
+        <div class="card-titulo">
+          <h2><i class="bi bi-plus-circle-fill" style="color:var(--ipe-verde)" aria-hidden="true"></i>
+            Registrar uma ação</h2>
+        </div>
+        <p class="text-muted">
+          Descreva o que foi feito e anexe a comprovação. Se essa ação também gera
+          um número (pessoas atendidas, propostas recebidas...), já pode lançar a
+          métrica no mesmo envio.
+        </p>
+
+        <form method="post" enctype="multipart/form-data" novalidate>
+          {% csrf_token %}
+
+          {% if form.non_field_errors %}
+            <div class="alert alert-danger py-2" role="alert">
+              {% for erro in form.non_field_errors %}<div>{{ erro }}</div>{% endfor %}
+            </div>
+          {% endif %}
+
+          <div class="mb-3">
+            <label class="form-label campo-obrigatorio" for="{{ form.titulo.id_for_label }}">{{ form.titulo.label }}</label>
+            {{ form.titulo }}
+            {% if form.titulo.errors %}<ul class="errorlist">{% for e in form.titulo.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+          </div>
+
+          <div class="row g-3">
+            <div class="col-md-5">
+              <label class="form-label campo-obrigatorio" for="{{ form.data_referencia.id_for_label }}">{{ form.data_referencia.label }}</label>
+              {{ form.data_referencia }}
+              {% if form.data_referencia.errors %}<ul class="errorlist">{% for e in form.data_referencia.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+            </div>
+            <div class="col-md-7">
+              <label class="form-label" for="{{ form.responsavel.id_for_label }}">{{ form.responsavel.label }}</label>
+              {{ form.responsavel }}
+            </div>
+          </div>
+
+          <div class="mb-3 mt-3">
+            <label class="form-label" for="{{ form.descricao.id_for_label }}">{{ form.descricao.label }}</label>
+            {{ form.descricao }}
+            <div class="form-text">{{ form.descricao.help_text }}</div>
+          </div>
+
+          <hr>
+          <div class="rotulo-secao">Comprovação</div>
+
+          <div class="mb-3">
+            <label class="form-label" for="{{ form.requisito.id_for_label }}">{{ form.requisito.label }}</label>
+            {{ form.requisito }}
+            <div class="form-text">
+              Vincular ao requisito é o que faz a prática avançar para “completa”.
+            </div>
+            {% if form.requisito.errors %}<ul class="errorlist">{% for e in form.requisito.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+          </div>
+
+          <div class="row g-3">
+            <div class="col-md-7">
+              <label class="form-label" for="{{ form.arquivo.id_for_label }}">{{ form.arquivo.label }}</label>
+              {{ form.arquivo }}
+              <div class="form-text">{{ form.arquivo.help_text }}</div>
+              {% if form.arquivo.errors %}<ul class="errorlist">{% for e in form.arquivo.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+            </div>
+            <div class="col-md-5">
+              <label class="form-label" for="{{ form.link.id_for_label }}">{{ form.link.label }}</label>
+              {{ form.link }}
+              <div class="form-text">Se o arquivo já está no Drive ou na rede.</div>
+              {% if form.link.errors %}<ul class="errorlist">{% for e in form.link.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+            </div>
+          </div>
+
+          {% if metricas %}
+          <hr>
+          <div class="rotulo-secao">Métrica (opcional)</div>
+          <div class="row g-3">
+            <div class="col-md-7">
+              <label class="form-label" for="{{ form.metrica.id_for_label }}">{{ form.metrica.label }}</label>
+              {{ form.metrica }}
+              {% if form.metrica.errors %}<ul class="errorlist">{% for e in form.metrica.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+            </div>
+            <div class="col-md-5">
+              <label class="form-label" for="{{ form.valor.id_for_label }}">{{ form.valor.label }}</label>
+              {{ form.valor }}
+              {% if form.valor.errors %}<ul class="errorlist">{% for e in form.valor.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+            </div>
+          </div>
+          {% endif %}
+
+          <hr>
+          <div class="form-check">
+            {{ form.marcar_implantada }}
+            <label class="form-check-label" for="{{ form.marcar_implantada.id_for_label }}">
+              {{ form.marcar_implantada.label }}
+            </label>
+            <div class="form-text">{{ form.marcar_implantada.help_text }}</div>
+          </div>
+
+          <div class="d-flex gap-2 mt-4 flex-wrap">
+            <button type="submit" class="btn btn-destaque btn-lg">
+              <i class="bi bi-check-lg" aria-hidden="true"></i> Salvar registro
+            </button>
+            <a class="btn btn-outline-secondary" href="{% url 'registrar' %}">Cancelar</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== APOIO: o que falta nesta prática ====== -->
+  <div class="col-lg-4">
+    {% if faltas %}
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="rotulo-secao">Falta nesta prática</div>
+        <ul class="small mb-0">
+          {% for falta in faltas %}<li class="mb-1">{{ falta }}</li>{% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% else %}
+    <div class="alert alert-success" role="alert">
+      <strong>Esta prática já está completa.</strong>
+      Novos registros continuam sendo bem-vindos como histórico.
+    </div>
+    {% endif %}
+
+    {% if pratica.objetivo %}
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="rotulo-secao">Objetivo da prática</div>
+        <p class="small mb-0">{{ pratica.objetivo }}</p>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if evidencias %}
+    <div class="card">
+      <div class="card-body">
+        <div class="rotulo-secao">Últimos registros ({{ evidencias|length }})</div>
+        <div class="linha-tempo">
+          {% for e in evidencias|slice:":5" %}
+          <div class="evento">
+            <div class="fw-semibold small">{{ e.titulo }}</div>
+            <div class="quando">
+              {{ e.data_referencia|date:"d/m/Y"|default:"sem data" }}
+              {% if e.responsavel %}· {{ e.responsavel }}{% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block titulo %}Configuração inicial{% endblock %}
+
+{% block conteudo %}
+<div class="vazio-estado" style="max-width:640px;margin:3rem auto">
+  <i class="bi bi-geo-alt" aria-hidden="true"></i>
+  <h1 class="h4">O parque ainda não está cadastrado</h1>
+  <p class="mb-3">
+    O sistema precisa de um registro do mecanismo de inovação (o parque) para
+    começar a acompanhar a jornada CERNE.
+  </p>
+
+  {% if user.is_superuser %}
+    <a class="btn btn-destaque" href="/admin/acompanhamento/mecanismo/add/">
+      <i class="bi bi-plus-lg" aria-hidden="true"></i> Cadastrar o parque
+    </a>
+    <p class="text-muted small mt-3 mb-0">
+      Informe nome, tipo (parque tecnológico), cidade/UF e o nível CERNE almejado.
+      Deixe <strong>“é registro de exemplo”</strong> desmarcado e <strong>“ativo”</strong> marcado.
+    </p>
+  {% else %}
+    <p class="text-muted small mb-0">
+      Peça ao gestor do sistema para fazer o cadastro inicial.
+    </p>
+  {% endif %}
+</div>
+{% endblock %}

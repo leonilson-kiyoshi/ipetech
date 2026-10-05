@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: a4; margin: 1.8cm 1.5cm; }
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 9pt; color: #222; }
+  h1 { font-size: 16pt; text-align: center; margin: 0; }
+  .sub { text-align: center; color: #555; font-size: 9pt; margin-bottom: 2px; }
+  h2 { font-size: 12pt; background: #eef3fb; padding: 4px 6px; border-left: 4px solid #0d6efd; margin: 14px 0 6px; }
+  h3 { font-size: 10pt; color: #0d6efd; margin: 10px 0 2px; }
+  .prat { border: 1px solid #ccc; padding: 5px 7px; margin-bottom: 6px; }
+  .nome { font-weight: bold; }
+  .obj { color: #444; font-style: italic; margin: 2px 0; }
+  .col { width: 49%; vertical-align: top; }
+  table.cols { width: 100%; }
+  ul { margin: 2px 0 2px 14px; padding: 0; }
+  li { margin: 0; }
+  .badge { font-size: 8pt; padding: 1px 4px; border: 1px solid #999; border-radius: 3px; }
+  .ok { color: #198754; }
+  .pend { color: #c1121f; font-size: 8pt; margin-top: 3px; }
+  .rodape { color: #888; font-size: 8pt; margin-top: 10px; }
+</style>
+</head>
+<body>
+  <h1>Dossiê de Certificação CERNE</h1>
+  <div class="sub">{{ versao.nome }}</div>
+  <div class="sub"><b>{{ mecanismo.nome }}</b>{% if mecanismo.cidade_uf %} — {{ mecanismo.cidade_uf }}{% endif %}</div>
+  <div class="sub">Emitido em {% now "d/m/Y" %} ·
+    {% if prontidao.apto_nivel > 0 %}Apto a solicitar até o CERNE {{ prontidao.apto_nivel }}{% else %}Ainda não apto ao CERNE 1{% endif %}
+  </div>
+
+  {% for n in niveis %}
+  <h2>CERNE {{ n.nivel.numero }} — {{ n.nivel.nome }} ({{ n.completas }}/{{ n.total }} práticas completas)</h2>
+    {% for p in n.processos %}
+      <h3>{{ p.processo.codigo }} {{ p.processo.nome }}</h3>
+      {% for pi in p.praticas %}
+        <div class="prat">
+          <span class="nome">{{ pi.pratica.codigo }} {{ pi.pratica.nome }}</span>
+          — <span class="badge">{% if pi.completa %}COMPLETA{% else %}{{ pi.situacao_display }}{% endif %}</span>
+          {% if pi.pratica.objetivo %}<div class="obj">Objetivo: {{ pi.pratica.objetivo }}</div>{% endif %}
+          <table class="cols"><tr>
+            <td class="col">
+              <b>Evidências</b>
+              <ul>
+                {% for req in pi.requisitos %}
+                  <li>{% if req.id in req_atendidos %}<span class="ok">[x]</span>{% else %}[ ]{% endif %} {{ req.descricao }}</li>
+                {% empty %}<li>Sem requisitos detalhados.</li>{% endfor %}
+              </ul>
+              {% if pi.evidencias %}
+                <b>Anexadas:</b>
+                <ul>
+                  {% for e in pi.evidencias %}<li>{{ e.titulo }} — {{ e.data_referencia|default:e.criado_em|date:"d/m/Y" }}{% if e.responsavel %}, {{ e.responsavel }}{% endif %}</li>{% endfor %}
+                </ul>
+              {% endif %}
+            </td>
+            <td class="col">
+              <b>Métricas</b>
+              <ul>
+                {% for mm in pi.metricas %}
+                  <li>{{ mm.metrica.nome }}{% if mm.metrica.obrigatoria %} *{% endif %}:
+                    {% if mm.medicoes %}{{ mm.medicoes.0.valor }} {{ mm.metrica.unidade }} ({{ mm.medicoes.0.data|date:"d/m/Y" }}){% else %}sem medição{% endif %}
+                    {% if mm.metrica.meta %} · meta: {{ mm.metrica.meta }}{% endif %}
+                  </li>
+                {% empty %}<li>Sem métricas.</li>{% endfor %}
+              </ul>
+            </td>
+          </tr></table>
+          {% if pi.faltas %}<div class="pend">Pendências: {{ pi.faltas|join:" · " }}</div>{% endif %}
+        </div>
+      {% endfor %}
+    {% endfor %}
+  {% endfor %}
+
+  <div class="rodape">* métrica obrigatória. Documento gerado pelo Sistema de Acompanhamento CERNE 2025.</div>
+</body>
+</html>

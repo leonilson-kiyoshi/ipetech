@@ -1,0 +1,499 @@
+{% extends "base.html" %}
+{% load acompanhamento_extras %}
+{% block titulo %}{{ pratica.codigo }} {{ pratica.nome }}{% endblock %}
+
+{% block conteudo %}
+<nav aria-label="Trilha de navegação" class="no-print">
+  <ol class="breadcrumb small">
+    <li class="breadcrumb-item"><a href="{% url 'catalogo' %}">Práticas</a></li>
+    <li class="breadcrumb-item">CERNE {{ nivel.numero }} — {{ nivel.nome }}</li>
+    <li class="breadcrumb-item">{{ processo.codigo }} {{ processo.nome }}</li>
+    <li class="breadcrumb-item active" aria-current="page">{{ pratica.codigo }}</li>
+  </ol>
+</nav>
+
+<div class="pagina-cabecalho">
+  <div>
+    <h1><span class="selo-nivel">{{ nivel.numero }}</span> {{ pratica.codigo }} {{ pratica.nome }}</h1>
+    <p class="subtitulo">{{ processo.codigo }} {{ processo.nome }}</p>
+  </div>
+  <div class="d-flex gap-2 align-items-center flex-wrap">
+    {% if completa %}
+      <span class="pill ok"><i class="bi bi-check-circle-fill" aria-hidden="true"></i> Completa</span>
+    {% else %}
+      <span class="pill andamento"><i class="bi bi-exclamation-circle-fill" aria-hidden="true"></i>
+        {{ faltas|length }} pendência{{ faltas|length|pluralize }}</span>
+    {% endif %}
+    {% if pode_registrar %}
+    <a class="btn btn-destaque no-print" href="{% url 'registrar_acao' pratica.codigo %}">
+      <i class="bi bi-plus-lg" aria-hidden="true"></i> Registro rápido
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ===================== O QUE FALTA / TUDO PRONTO ===================== -->
+{% if completa %}
+  <div class="alert alert-success" role="alert">
+    <strong>Prática completa.</strong> Está implantada, com todas as evidências
+    obrigatórias anexadas e todas as métricas obrigatórias medidas.
+  </div>
+{% else %}
+  <div class="alert alert-warning" role="alert">
+    <strong>Para esta prática contar como completa:</strong>
+    <ul class="mb-0 mt-1">
+      {% for falta in faltas %}<li>{{ falta }}</li>{% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
+<!-- ===================== SOBRE A PRÁTICA ===================== -->
+<div class="card">
+  <div class="card-body">
+    {% if pratica.objetivo %}
+      <div class="rotulo-secao">Objetivo</div>
+      <p>{{ pratica.objetivo }}</p>
+    {% endif %}
+    {% if pratica.descricao %}
+      <div class="rotulo-secao">Descrição</div>
+      <p class="mb-0">{{ pratica.descricao }}</p>
+    {% endif %}
+    {% if pratica.orientacao_preenchimento %}
+      <div class="dica mt-3">
+        <strong><i class="bi bi-lightbulb-fill" aria-hidden="true"></i> Como preencher</strong>
+        <div class="mt-1">{{ pratica.orientacao_preenchimento }}</div>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ===================== SITUAÇÃO ===================== -->
+<div class="card">
+  <div class="card-body">
+    <div class="card-titulo">
+      <h2><i class="bi bi-flag-fill" aria-hidden="true"></i> Situação da prática</h2>
+      {% if status %}
+        <span class="text-muted small">
+          atualizado em {{ status.atualizado_em|date:"d/m/Y H:i" }}
+          {% if status.atualizado_por %}por {{ status.atualizado_por.get_username }}{% endif %}
+        </span>
+      {% else %}
+        <span class="text-muted small">nunca preenchido</span>
+      {% endif %}
+    </div>
+
+    {% if pode_registrar %}
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="tipo" value="status">
+        {% include "acompanhamento/_campos.html" with form=form_status colunas=2 %}
+        <button type="submit" class="btn btn-primary mt-3">
+          <i class="bi bi-check-lg" aria-hidden="true"></i> Salvar situação
+        </button>
+      </form>
+    {% else %}
+      <p class="mb-0">
+        <span class="pill {% if status.situacao == 'implantada' %}ok{% elif status %}andamento{% else %}parado{% endif %}">
+          {% if status %}{{ status.get_situacao_display }}{% else %}Não iniciada{% endif %}
+        </span>
+        {% if status %}<span class="text-muted small ms-2">{{ status.percentual }}% implantada</span>{% endif %}
+      </p>
+      {% if status.observacoes %}<p class="small mt-2 mb-0">{{ status.observacoes }}</p>{% endif %}
+    {% endif %}
+  </div>
+</div>
+
+<!-- ===================== EVIDÊNCIAS POR REQUISITO ===================== -->
+<div class="card">
+  <div class="card-body">
+    <div class="card-titulo">
+      <h2><i class="bi bi-paperclip" aria-hidden="true"></i> Evidências por requisito</h2>
+      <span class="text-muted small">{{ evidencias|length }} registrada{{ evidencias|length|pluralize }}</span>
+    </div>
+    <p class="text-muted">
+      Cada requisito obrigatório precisa de pelo menos uma evidência anexada
+      para a prática contar como completa.
+    </p>
+
+    {% for req in requisitos %}
+      {% with anexadas=evidencias_por_requisito|buscar:req.id %}
+      <details class="bloco {% if anexadas %}atendido{% elif req.obrigatorio %}pendente-obrigatorio{% endif %}"
+               {% if not anexadas %}open{% endif %}>
+        <summary>
+          <span class="marca-estado {% if anexadas %}ok{% else %}parado{% endif %}" aria-hidden="true">
+            <i class="bi {% if anexadas %}bi-check-circle-fill{% else %}bi-circle{% endif %}"></i>
+          </span>
+          <span style="flex:1;min-width:0">{{ req.descricao }}</span>
+          {% if req.obrigatorio %}
+            <span class="pill {% if anexadas %}ok{% else %}alerta{% endif %}">
+              {% if anexadas %}atendido{% else %}obrigatório{% endif %}
+            </span>
+          {% else %}
+            <span class="pill parado">opcional</span>
+          {% endif %}
+        </summary>
+
+        {% if req.exemplo %}
+          <div class="exemplo mb-2"><i class="bi bi-stars" aria-hidden="true"></i> <strong>Exemplo:</strong> {{ req.exemplo }}</div>
+        {% endif %}
+
+        {% for e in anexadas %}
+          <div class="arquivo-item">
+            {% if e.arquivo %}
+              <span class="tipo {{ e.arquivo.name|tipo_arquivo }}" aria-hidden="true">
+                <i class="bi {{ e.arquivo.name|icone_arquivo }}"></i>
+              </span>
+            {% else %}
+              <span class="tipo link" aria-hidden="true"><i class="bi bi-link-45deg"></i></span>
+            {% endif %}
+            <div class="corpo">
+              <div class="nome">
+                {% if e.arquivo %}
+                  <a href="{% url 'evidencia_arquivo' e.pk %}" target="_blank" rel="noopener">{{ e.titulo }}</a>
+                {% elif e.link %}
+                  <a href="{{ e.link }}" target="_blank" rel="noopener noreferrer">{{ e.titulo }}</a>
+                {% else %}{{ e.titulo }}{% endif %}
+              </div>
+              <div class="apoio">
+                {{ e.data_referencia|date:"d/m/Y"|default:"sem data" }}
+                {% if e.responsavel %}· {{ e.responsavel }}{% endif %}
+                {% if e.descricao %}· {{ e.descricao }}{% endif %}
+                {% if e.arquivo %}<br><span class="caminho-pasta">{{ e.arquivo.name }}</span>{% endif %}
+              </div>
+            </div>
+            {% if pode_registrar %}
+              <form method="post" class="no-print"
+                    onsubmit="return confirm('Remover esta evidência? O arquivo também será apagado do disco.');">
+                {% csrf_token %}
+                <input type="hidden" name="tipo" value="excluir_evidencia">
+                <input type="hidden" name="id" value="{{ e.pk }}">
+                <button type="submit" class="btn btn-sm btn-outline-secondary" title="Remover evidência">
+                  <i class="bi bi-trash" aria-hidden="true"></i><span class="visually-hidden">Remover</span>
+                </button>
+              </form>
+            {% endif %}
+          </div>
+        {% empty %}
+          <p class="text-muted small">Nenhuma evidência anexada a este requisito.</p>
+        {% endfor %}
+
+        {% if pode_registrar %}
+        <div class="caixa-formulario">
+          <div class="rotulo-secao">Anexar evidência para este requisito</div>
+          <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            <input type="hidden" name="tipo" value="evidencia">
+            <input type="hidden" name="requisito" value="{{ req.pk }}">
+            <div class="row g-2">
+              <div class="col-md-6">
+                <label class="form-label campo-obrigatorio">Título</label>
+                <input type="text" name="titulo" class="form-control" required
+                       placeholder="ex.: Lista de presença da palestra">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Data</label>
+                <input type="date" name="data_referencia" class="form-control" value="{% now 'Y-m-d' %}">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Responsável</label>
+                <input type="text" name="responsavel" class="form-control">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Arquivo</label>
+                <input type="file" name="arquivo" class="form-control">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Ou link</label>
+                <input type="url" name="link" class="form-control" placeholder="https://...">
+              </div>
+              <div class="col-12">
+                <label class="form-label">Descrição</label>
+                <input type="text" name="descricao" class="form-control"
+                       placeholder="o que este documento comprova">
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm mt-3">
+              <i class="bi bi-upload" aria-hidden="true"></i> Anexar
+            </button>
+          </form>
+        </div>
+        {% endif %}
+      </details>
+      {% endwith %}
+    {% empty %}
+      <div class="vazio-estado">
+        <i class="bi bi-inbox" aria-hidden="true"></i>
+        Esta prática ainda não tem requisitos de evidência cadastrados no catálogo.
+      </div>
+    {% endfor %}
+
+    {% with soltas=evidencias_por_requisito|buscar:None %}
+      {% if soltas %}
+        <div class="rotulo-secao mt-3">Evidências sem requisito vinculado</div>
+        {% for e in soltas %}
+          <div class="arquivo-item">
+            <span class="tipo link" aria-hidden="true"><i class="bi bi-paperclip"></i></span>
+            <div class="corpo">
+              <div class="nome">
+                {% if e.arquivo %}<a href="{% url 'evidencia_arquivo' e.pk %}" target="_blank" rel="noopener">{{ e.titulo }}</a>
+                {% elif e.link %}<a href="{{ e.link }}" target="_blank" rel="noopener noreferrer">{{ e.titulo }}</a>
+                {% else %}{{ e.titulo }}{% endif %}
+              </div>
+              <div class="apoio">
+                {{ e.data_referencia|date:"d/m/Y"|default:"sem data" }}
+                · <span class="text-warning-emphasis">não conta para a prontidão enquanto não for vinculada a um requisito</span>
+              </div>
+            </div>
+            {% if pode_registrar %}
+              <form method="post" class="no-print" onsubmit="return confirm('Remover esta evidência?');">
+                {% csrf_token %}
+                <input type="hidden" name="tipo" value="excluir_evidencia">
+                <input type="hidden" name="id" value="{{ e.pk }}">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">
+                  <i class="bi bi-trash" aria-hidden="true"></i><span class="visually-hidden">Remover</span>
+                </button>
+              </form>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+  </div>
+</div>
+
+<!-- ===================== MÉTRICAS ===================== -->
+<div class="card">
+  <div class="card-body">
+    <div class="card-titulo">
+      <h2><i class="bi bi-graph-up-arrow" aria-hidden="true"></i> Métricas e metas</h2>
+      <span class="text-muted small">{{ medicoes|length }} medição{{ medicoes|length|pluralize:"ões" }}</span>
+    </div>
+
+    {% for m in metricas %}
+      {% with lancadas=medicoes_por_metrica|buscar:m.id %}
+      <details class="bloco {% if lancadas %}atendido{% elif m.obrigatoria %}pendente-obrigatorio{% endif %}"
+               {% if not lancadas %}open{% endif %}>
+        <summary>
+          <span class="marca-estado {% if lancadas %}ok{% else %}parado{% endif %}" aria-hidden="true">
+            <i class="bi {% if lancadas %}bi-check-circle-fill{% else %}bi-circle{% endif %}"></i>
+          </span>
+          <span style="flex:1;min-width:0">
+            {{ m.nome }}{% if m.unidade %} <span class="text-muted">({{ m.unidade }})</span>{% endif %}
+          </span>
+          {% if m.obrigatoria %}
+            <span class="pill {% if lancadas %}ok{% else %}alerta{% endif %}">
+              {% if lancadas %}medida{% else %}obrigatória{% endif %}
+            </span>
+          {% else %}
+            <span class="pill parado">sugestão</span>
+          {% endif %}
+        </summary>
+
+        {% if m.meta %}<p class="mb-1"><strong>Meta:</strong> {{ m.meta }}</p>{% endif %}
+        {% if m.descricao %}<p class="text-muted small mb-1">{{ m.descricao }}</p>{% endif %}
+        {% if m.exemplo %}
+          <div class="exemplo mb-2"><i class="bi bi-stars" aria-hidden="true"></i> {{ m.exemplo }}</div>
+        {% endif %}
+
+        {% if lancadas %}
+          <div class="table-responsive">
+            <table class="table table-sm table-hover">
+              <thead><tr>
+                <th class="text-end">Valor</th><th>Data</th><th>Observação</th>
+                {% if pode_registrar %}<th class="text-end no-print">Ações</th>{% endif %}
+              </tr></thead>
+              <tbody>
+                {% for med in lancadas %}
+                <tr>
+                  <td class="text-end numeros-tabulares fw-semibold">
+                    {{ med.valor|floatformat:"-2" }}{% if m.unidade %} <span class="text-muted fw-normal">{{ m.unidade }}</span>{% endif %}
+                  </td>
+                  <td>{{ med.data|date:"d/m/Y" }}</td>
+                  <td class="small">{{ med.observacao|default:"—" }}</td>
+                  {% if pode_registrar %}
+                  <td class="text-end no-print">
+                    <form method="post" onsubmit="return confirm('Remover esta medição?');">
+                      {% csrf_token %}
+                      <input type="hidden" name="tipo" value="excluir_medicao">
+                      <input type="hidden" name="id" value="{{ med.pk }}">
+                      <button type="submit" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-trash" aria-hidden="true"></i><span class="visually-hidden">Remover</span>
+                      </button>
+                    </form>
+                  </td>
+                  {% endif %}
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="text-muted small">Nenhuma medição lançada.</p>
+        {% endif %}
+
+        {% if pode_registrar %}
+        <div class="caixa-formulario">
+          <div class="rotulo-secao">Lançar medição</div>
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="tipo" value="medicao">
+            <input type="hidden" name="metrica" value="{{ m.pk }}">
+            <div class="row g-2">
+              <div class="col-md-3">
+                <label class="form-label campo-obrigatorio">Valor</label>
+                <input type="number" step="any" name="valor" class="form-control" required>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label campo-obrigatorio">Data</label>
+                <input type="date" name="data" class="form-control" value="{% now 'Y-m-d' %}" required>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Observação</label>
+                <input type="text" name="observacao" class="form-control">
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm mt-3">
+              <i class="bi bi-plus-lg" aria-hidden="true"></i> Lançar
+            </button>
+          </form>
+        </div>
+        {% endif %}
+      </details>
+      {% endwith %}
+    {% empty %}
+      <p class="text-muted small mb-0">Esta prática não exige métricas.</p>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ===================== REVISÕES CRÍTICAS ===================== -->
+<div class="card">
+  <div class="card-body">
+    <div class="card-titulo">
+      <h2><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Revisões críticas</h2>
+    </div>
+    <p class="text-muted">
+      O CERNE espera que o parque avalie periodicamente se a prática está dando
+      resultado: eficiência, eficácia e efetividade.
+    </p>
+
+    {% for r in revisoes %}
+      <details class="bloco">
+        <summary>
+          <span style="flex:1;min-width:0">
+            Revisão de {{ r.data|date:"d/m/Y" }}{% if r.periodo %} · {{ r.periodo }}{% endif %}
+          </span>
+          {% if r.necessita_ajustes %}<span class="pill andamento">requer ajustes</span>{% endif %}
+        </summary>
+        <p class="small mb-1"><strong>Eficiência:</strong> {{ r.eficiencia|default:"—" }}</p>
+        <p class="small mb-1"><strong>Eficácia:</strong> {{ r.eficacia|default:"—" }}</p>
+        <p class="small mb-1"><strong>Efetividade:</strong> {{ r.efetividade|default:"—" }}</p>
+        {% if r.observacoes %}<p class="small text-muted mb-1">{{ r.observacoes }}</p>{% endif %}
+        <div class="text-muted" style="font-size:.8rem">
+          registrado em {{ r.criado_em|date:"d/m/Y H:i" }}
+          {% if r.criado_por %}por {{ r.criado_por.get_username }}{% endif %}
+        </div>
+        {% if pode_registrar %}
+          <form method="post" class="mt-2 no-print" onsubmit="return confirm('Remover esta revisão?');">
+            {% csrf_token %}
+            <input type="hidden" name="tipo" value="excluir_revisao">
+            <input type="hidden" name="id" value="{{ r.pk }}">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">
+              <i class="bi bi-trash" aria-hidden="true"></i> Remover
+            </button>
+          </form>
+        {% endif %}
+      </details>
+    {% empty %}
+      <p class="text-muted small">Nenhuma revisão crítica registrada.</p>
+    {% endfor %}
+
+    {% if pode_registrar %}
+    <details class="bloco no-print">
+      <summary><i class="bi bi-plus-circle" aria-hidden="true"></i> Registrar revisão crítica</summary>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="tipo" value="revisao">
+        {% include "acompanhamento/_campos.html" with form=form_revisao %}
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-check-lg" aria-hidden="true"></i> Salvar revisão
+        </button>
+      </form>
+    </details>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ===================== PLANOS DE AÇÃO ===================== -->
+<div class="card">
+  <div class="card-body">
+    <div class="card-titulo">
+      <h2><i class="bi bi-list-task" aria-hidden="true"></i> Planos de ação</h2>
+    </div>
+
+    {% for p in planos %}
+      <div class="borda-suave p-3 mb-2 d-flex justify-content-between align-items-start gap-2 flex-wrap">
+        <div style="flex:1;min-width:200px">
+          <div>{{ p.descricao }}</div>
+          <div class="text-muted small">
+            {% if p.responsavel %}{{ p.responsavel }} · {% endif %}
+            {% if p.prazo %}prazo {{ p.prazo|date:"d/m/Y" }}{% else %}sem prazo{% endif %}
+          </div>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+          <span class="pill {% if p.situacao == 'concluido' %}ok{% elif p.situacao == 'cancelado' %}parado{% elif p.situacao == 'em_andamento' %}andamento{% else %}verde-escuro{% endif %}">
+            {{ p.get_situacao_display }}
+          </span>
+          {% if pode_registrar %}
+            {% if p.situacao != 'concluido' and p.situacao != 'cancelado' %}
+            <form method="post" class="no-print">
+              {% csrf_token %}
+              <input type="hidden" name="tipo" value="concluir_plano">
+              <input type="hidden" name="id" value="{{ p.pk }}">
+              <button type="submit" class="btn btn-sm btn-outline-primary" title="Marcar como concluído">
+                <i class="bi bi-check2" aria-hidden="true"></i> Concluir
+              </button>
+            </form>
+            {% endif %}
+            <form method="post" class="no-print" onsubmit="return confirm('Remover este plano?');">
+              {% csrf_token %}
+              <input type="hidden" name="tipo" value="excluir_plano">
+              <input type="hidden" name="id" value="{{ p.pk }}">
+              <button type="submit" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-trash" aria-hidden="true"></i><span class="visually-hidden">Remover</span>
+              </button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    {% empty %}
+      <p class="text-muted small">Nenhum plano de ação nesta prática.</p>
+    {% endfor %}
+
+    {% if pode_registrar %}
+    <details class="bloco no-print">
+      <summary><i class="bi bi-plus-circle" aria-hidden="true"></i> Novo plano de ação</summary>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="tipo" value="plano">
+        {% include "acompanhamento/_campos.html" with form=form_plano colunas=3 %}
+        <button type="submit" class="btn btn-primary mt-3">
+          <i class="bi bi-check-lg" aria-hidden="true"></i> Criar plano
+        </button>
+      </form>
+    </details>
+    {% endif %}
+  </div>
+</div>
+
+{% if recomendacoes %}
+<div class="card">
+  <div class="card-body">
+    <div class="rotulo-secao"><i class="bi bi-hand-thumbs-up" aria-hidden="true"></i> Recomendações da metodologia</div>
+    <ul class="small mb-0">
+      {% for r in recomendacoes %}<li>{{ r.texto }}</li>{% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

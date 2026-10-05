@@ -1,0 +1,208 @@
+rules_version = '2';
+
+// ============================================================================
+// Regras de segurança do Firestore — Acompanhamento CERNE / IpêTech Paraíso
+//
+// ESTAS REGRAS SÃO APLICADAS NO SERVIDOR DO GOOGLE.
+// Não são verificação do navegador: mesmo que alguém altere o JavaScript da
+// página ou chame a API direto, o Firestore recusa o que não estiver liberado
+// aqui. É isto que protege os dados do parque, e não o código do site.
+//
+// COMO PUBLICAR
+//   Console do Firebase -> Bancos de dados e armazenamento -> Firestore
+//   -> aba Regras -> colar este conteúdo -> Publicar
+//
+// MODELO DE PERMISSÃO
+//   gestor raiz : e-mail fixo abaixo. Já nasce autorizado, e é quem libera as
+//                 outras pessoas. Existe para resolver o problema do primeiro
+//                 acesso: alguém precisa poder criar a lista de autorizados.
+//   gestor      : tudo, inclusive gerenciar quem tem acesso.
+//   equipe      : registra o acompanhamento (o técnico).
+//   consulta    : somente leitura. Serve para auditoria e para apresentar.
+//
+// Quem fizer login sem estar na lista entra, mas não lê dado nenhum do parque:
+// o aplicativo mostra "acesso não liberado".
+// ============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------------------------------------------------------- apoio
+
+    function logado() {
+      return request.auth != null;
+    }
+
+    // O gestor raiz é identificado pelo e-mail da conta Google.
+    // Para trocar de responsável, altere este endereço e publique de novo.
+    function ehGestorRaiz() {
+      return logado()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email == 'leonilsonk@gmail.com';
+    }
+
+    // O e-mail em minúsculas é a chave da ficha de acesso.
+    function emailDoUsuario() {
+      return logado() && request.auth.token.email != null
+        ? request.auth.token.email.lower()
+        : '';
+    }
+
+    function fichaDoUsuario() {
+      return get(/databases/$(database)/documents/usuarios/$(emailDoUsuario())).data;
+    }
+
+    function temFicha() {
+      return logado() && emailDoUsuario() != ''
+        && exists(/databases/$(database)/documents/usuarios/$(emailDoUsuario()));
+    }
+
+    function papel() {
+      return temFicha() ? fichaDoUsuario().papel : 'nenhum';
+    }
+
+    // Pode ver os dados do parque.
+    function autorizado() {
+      return ehGestorRaiz() || temFicha();
+    }
+
+    // Pode registrar (gestor e equipe). Consulta fica de fora.
+    function podeRegistrar() {
+      return ehGestorRaiz() || papel() == 'gestor' || papel() == 'equipe';
+    }
+
+    // Pode administrar o parque e a lista de pessoas.
+    function ehGestor() {
+      return ehGestorRaiz() || papel() == 'gestor';
+    }
+
+    // Garante que ninguém registre em nome de outra pessoa: a autoria
+    // gravada tem que ser a de quem está enviando. É o que dá valor à
+    // trilha de auditoria do dossiê.
+    function autoriaPropria() {
+      return request.resource.data.criado_por == request.auth.uid;
+    }
+
+    // ------------------------------------------------------------- usuarios
+    // A lista de quem tem acesso, e com qual papel.
+
+    // A ficha é identificada pelo E-MAIL em minúsculas, não pelo uid.
+    //
+    // Por quê: o uid só passa a existir depois que a pessoa faz o primeiro
+    // login. Usando uid, o fluxo seria: a pessoa entra, vê "sem acesso",
+    // copia um código, manda para o gestor, o gestor cadastra, ela entra de
+    // novo. Com e-mail, o gestor libera ANTES: a pessoa entra e já funciona.
+    match /usuarios/{email} {
+      // Cada pessoa sempre pode ler a própria ficha. É assim que o aplicativo
+      // descobre o papel de quem entrou — inclusive para avisar que o acesso
+      // ainda não foi liberado.
+      allow get: if logado() && emailDoUsuario() == email;
+
+      // Ver a equipe inteira é coisa de gestor: é a única tela que lê a lista
+      // completa. Assim os e-mails da equipe não ficam expostos a quem só
+      // precisa registrar ou consultar.
+      allow list: if ehGestor();
+
+      // Só o gestor inclui, altera ou remove pessoas.
+      allow create, update: if ehGestor()
+        && request.resource.data.papel in ['gestor', 'equipe', 'consulta'];
+
+      // Ninguém remove a própria ficha: evita o gestor se trancar fora.
+      allow delete: if ehGestor() && emailDoUsuario() != email;
+    }
+
+    // --------------------------------------------------------------- config
+    // Dados do próprio parque (nome, cidade, nível almejado).
+
+    match /config/{documento} {
+      allow read: if autorizado();
+      allow write: if ehGestor();
+    }
+
+    // ------------------------------------------------------------- praticas
+    // Situação de cada prática-chave. O id do documento é o código da
+    // prática (ex.: "1.1.1"), o que impede duplicidade por construção.
+
+    match /praticas/{codigo} {
+      allow read: if autorizado();
+      allow create, update: if podeRegistrar()
+        && request.resource.data.atualizado_por == request.auth.uid
+        && request.resource.data.percentual >= 0
+        && request.resource.data.percentual <= 100
+        && request.resource.data.situacao in
+             ['nao_iniciada', 'em_andamento', 'implantada', 'em_revisao'];
+      // Situação de prática não se apaga: volta para "não iniciada".
+      allow delete: if false;
+    }
+
+    // ----------------------------------------------------------- evidencias
+
+    match /evidencias/{id} {
+      allow read: if autorizado();
+      allow create: if podeRegistrar() && autoriaPropria()
+        && request.resource.data.titulo is string
+        && request.resource.data.titulo.size() > 0
+        && request.resource.data.pratica is string;
+      allow update: if podeRegistrar();
+      allow delete: if podeRegistrar();
+    }
+
+    // ------------------------------------------------------------- medicoes
+
+    match /medicoes/{id} {
+      allow read: if autorizado();
+      allow create: if podeRegistrar() && autoriaPropria()
+        && request.resource.data.valor is number
+        && request.resource.data.metrica is string;
+      allow update: if podeRegistrar();
+      allow delete: if podeRegistrar();
+    }
+
+    // ------------------------------------------------------------- revisoes
+    // Revisões críticas (eficiência, eficácia, efetividade).
+
+    match /revisoes/{id} {
+      allow read: if autorizado();
+      allow create: if podeRegistrar() && autoriaPropria();
+      allow update, delete: if podeRegistrar();
+    }
+
+    // --------------------------------------------------------------- planos
+    // Planos de ação.
+
+    match /planos/{id} {
+      allow read: if autorizado();
+      allow create: if podeRegistrar() && autoriaPropria();
+      allow update, delete: if podeRegistrar();
+    }
+
+    // ------------------------------------------------------ empreendimentos
+
+    match /empreendimentos/{id} {
+      allow read: if autorizado();
+      allow create: if podeRegistrar() && autoriaPropria()
+        && request.resource.data.nome is string
+        && request.resource.data.nome.size() > 0;
+      allow update, delete: if podeRegistrar();
+
+      // Avaliações dos cinco eixos, como subcoleção do empreendimento.
+      match /avaliacoes/{avaliacaoId} {
+        allow read: if autorizado();
+        allow create: if podeRegistrar() && autoriaPropria()
+          && request.resource.data.nota >= 0
+          && request.resource.data.nota <= 5
+          && request.resource.data.eixo in
+               ['empreendedor', 'tecnologia', 'capital', 'mercado', 'gestao'];
+        allow update, delete: if podeRegistrar();
+      }
+    }
+
+    // ------------------------------------------------------------- o resto
+    // Nada mais é acessível. Coleção nova só funciona depois de ser
+    // liberada aqui, de propósito: o padrão é negar.
+
+    match /{documento=**} {
+      allow read, write: if false;
+    }
+  }
+}

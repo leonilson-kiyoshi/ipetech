@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block titulo %}Registrar ação{% endblock %}
+
+{% block conteudo %}
+<div class="pagina-cabecalho">
+  <div>
+    <h1>Registrar ação</h1>
+    <p class="subtitulo">Registre o que o parque fez e anexe a comprovação. É daqui que o dossiê de auditoria se monta, aos poucos.</p>
+  </div>
+</div>
+
+{% if not pode_registrar %}
+  <div class="alert alert-warning" role="alert">
+    Seu perfil é de <strong>consulta</strong>. Você pode navegar e gerar o dossiê, mas não registrar.
+    Peça ao gestor para incluir seu usuário no grupo <strong>Equipe</strong>.
+  </div>
+{% endif %}
+
+<div class="row g-3">
+  <!-- ============ COMEÇAR UM REGISTRO ============ -->
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="card-titulo">
+          <h2><i class="bi bi-pencil-square" aria-hidden="true"></i> O que você vai registrar?</h2>
+        </div>
+        <p class="text-muted">
+          Escolha a prática-chave a que a ação se refere. Se não souber qual é,
+          use <a href="{% url 'auditoria' %}">O que falta</a> para ver as pendências,
+          ou o <a href="{% url 'guia' %}">guia de preenchimento</a>.
+        </p>
+
+        <form method="post" class="mt-3">
+          {% csrf_token %}
+          <div class="mb-3">
+            <label class="form-label campo-obrigatorio" for="{{ form_escolher.pratica.id_for_label }}">
+              {{ form_escolher.pratica.label }}
+            </label>
+            {{ form_escolher.pratica }}
+            {% if form_escolher.pratica.errors %}
+              <ul class="errorlist">
+                {% for erro in form_escolher.pratica.errors %}<li>{{ erro }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+          <button type="submit" class="btn btn-destaque btn-lg" {% if not pode_registrar %}disabled{% endif %}>
+            <i class="bi bi-arrow-right-circle" aria-hidden="true"></i> Continuar
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ SITUAÇÃO ATUAL ============ -->
+  <div class="col-lg-5">
+    <div class="faixa-prontidao h-100">
+      <div class="rotulo">Situação do parque</div>
+      {% if prontidao.apto_nivel > 0 %}
+        <div class="nivel-grande">CERNE {{ prontidao.apto_nivel }}</div>
+        <div class="apoio">Apto a solicitar. Níveis 1 a {{ prontidao.apto_nivel }} completos.</div>
+      {% else %}
+        <div class="nivel-grande pendente">CERNE 1</div>
+        <div class="apoio">Em construção. Falta completar o nível 1.</div>
+      {% endif %}
+      <hr style="border-color:rgba(255,255,255,.18)">
+      <div class="apoio">
+        <strong>{{ prontidao.total_completas }}</strong> de {{ prontidao.total_praticas }} práticas completas
+        {% if prontidao.proximo_nivel %}
+          <br>Próximo objetivo: <strong>CERNE {{ prontidao.proximo_nivel }}</strong>
+          ({{ total_pendencias }} prática{{ total_pendencias|pluralize }} com pendência)
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ATALHOS ============ -->
+<h2 class="mt-4 mb-2">Atalhos</h2>
+<div class="ladrilhos">
+  <a class="ladrilho" href="{% url 'empreendimentos' %}">
+    <span class="cabeca"><i class="bi bi-rocket-takeoff" aria-hidden="true"></i>
+      <span class="titulo">Empreendimento</span></span>
+    <span class="texto">Cadastrar uma empresa nova ou avaliar a evolução nos cinco eixos.</span>
+  </a>
+  <a class="ladrilho" href="{% url 'arquivos' %}">
+    <span class="cabeca"><i class="bi bi-folder2-open" aria-hidden="true"></i>
+      <span class="titulo">Arquivos</span></span>
+    <span class="texto">Ver todas as evidências anexadas e onde cada arquivo está salvo.</span>
+  </a>
+  <a class="ladrilho" href="{% url 'auditoria' %}">
+    <span class="cabeca"><i class="bi bi-clipboard-data" aria-hidden="true"></i>
+      <span class="titulo">O que falta</span></span>
+    <span class="texto">Lista completa das pendências, nível por nível.</span>
+  </a>
+  <a class="ladrilho" href="{% url 'dossie' %}">
+    <span class="cabeca"><i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+      <span class="titulo">Dossiê</span></span>
+    <span class="texto">Gerar o documento consolidado para a auditoria, em PDF.</span>
+  </a>
+</div>
+
+<!-- ============ PENDÊNCIAS PRIORITÁRIAS ============ -->
+{% if pendencias %}
+<div class="card mt-4">
+  <div class="card-body">
+    <div class="card-titulo">
+      <h2><i class="bi bi-flag-fill" style="color:var(--ipe-amarelo)" aria-hidden="true"></i>
+        Comece por aqui</h2>
+      <span class="pill destaque">rumo ao CERNE {{ prontidao.proximo_nivel }}</span>
+    </div>
+    <p class="text-muted">
+      Estas práticas têm pendências que impedem o parque de solicitar o próximo nível.
+      Clique para registrar direto na prática.
+    </p>
+
+    {% for item in pendencias %}
+      <div class="borda-suave p-3 mb-2">
+        <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+          <a href="{% url 'pratica_detail' item.pratica.codigo %}" class="fw-semibold">
+            {{ item.pratica.codigo }} {{ item.pratica.nome }}
+          </a>
+          <a class="btn btn-sm btn-outline-primary" href="{% url 'registrar_acao' item.pratica.codigo %}">
+            <i class="bi bi-plus-lg" aria-hidden="true"></i> Registrar
+          </a>
+        </div>
+        <ul class="text-muted small mb-0 mt-1">
+          {% for falta in item.faltas %}<li>{{ falta }}</li>{% endfor %}
+        </ul>
+      </div>
+    {% endfor %}
+
+    {% if total_pendencias > pendencias|length %}
+      <a href="{% url 'auditoria' %}" class="btn btn-outline-primary btn-sm mt-2">
+        Ver todas as {{ total_pendencias }} pendências
+      </a>
+    {% endif %}
+  </div>
+</div>
+{% elif prontidao.proximo_nivel %}
+  <div class="alert alert-success mt-4" role="alert">
+    <strong>Tudo pronto para solicitar o CERNE {{ prontidao.proximo_nivel }}.</strong>
+    Gere o <a href="{% url 'dossie' %}">dossiê</a> e leve para a auditoria.
+  </div>
+{% endif %}
+{% endblock %}

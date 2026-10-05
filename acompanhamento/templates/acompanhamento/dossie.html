@@ -1,0 +1,265 @@
+{% extends "base.html" %}
+{% load acompanhamento_extras %}
+{% block titulo %}Dossiê{% endblock %}
+
+{% block conteudo %}
+<div class="pagina-cabecalho no-print">
+  <div>
+    <h1>Dossiê de certificação</h1>
+    <p class="subtitulo">
+      Documento consolidado para apresentar à auditoria: cada prática com sua
+      situação, evidências, métricas e revisões.
+    </p>
+  </div>
+  <div class="d-flex gap-2 align-items-center flex-wrap">
+    <form method="get" class="d-flex gap-2 align-items-center">
+      <label class="form-label mb-0 small text-muted" for="nivel">Nível</label>
+      <select id="nivel" name="nivel" class="form-select form-select-sm" style="width:auto"
+              onchange="this.form.submit()">
+        <option value="">Completo (todos)</option>
+        {% for numero in niveis_disponiveis %}
+          <option value="{{ numero }}" {% if nivel_sel == numero %}selected{% endif %}>
+            Somente CERNE {{ numero }}
+          </option>
+        {% endfor %}
+      </select>
+    </form>
+    <button type="button" class="btn btn-outline-primary" onclick="window.print()">
+      <i class="bi bi-printer" aria-hidden="true"></i> Imprimir
+    </button>
+    <a class="btn btn-destaque" href="{% url 'dossie_pdf' %}{% if nivel_sel %}?nivel={{ nivel_sel }}{% endif %}">
+      <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Baixar PDF
+    </a>
+  </div>
+</div>
+
+<!-- ============ CAPA ============ -->
+<div class="card">
+  <div class="card-body">
+    <div class="rotulo-secao">Dossiê de certificação CERNE</div>
+    <h2 class="mb-1">{{ mecanismo.nome }}</h2>
+    <p class="text-muted">
+      {{ mecanismo.tipo|default:"mecanismo de inovação" }}
+      {% if mecanismo.cidade_uf %}· {{ mecanismo.cidade_uf }}{% endif %}
+      · {{ versao.nome }}
+    </p>
+
+    <ul class="list-unstyled mb-0 small">
+      <li class="d-flex justify-content-between border-bottom py-2">
+        <span class="text-muted">Nível pelo qual está apto</span>
+        <span class="fw-semibold">
+          {% if prontidao.apto_nivel > 0 %}CERNE {{ prontidao.apto_nivel }}
+          {% else %}ainda não apto ao CERNE 1{% endif %}
+        </span>
+      </li>
+      <li class="d-flex justify-content-between border-bottom py-2">
+        <span class="text-muted">Práticas completas</span>
+        <span>{{ prontidao.total_completas }} de {{ prontidao.total_praticas }}</span>
+      </li>
+      <li class="d-flex justify-content-between border-bottom py-2">
+        <span class="text-muted">Nível almejado</span>
+        <span>{% if mecanismo.nivel_almejado %}CERNE {{ mecanismo.nivel_almejado }}{% else %}—{% endif %}</span>
+      </li>
+      <li class="d-flex justify-content-between border-bottom py-2">
+        <span class="text-muted">Escopo deste documento</span>
+        <span>{% if nivel_sel %}somente CERNE {{ nivel_sel }}{% else %}todos os níveis{% endif %}</span>
+      </li>
+      <li class="d-flex justify-content-between py-2">
+        <span class="text-muted">Gerado em</span>
+        <span>{{ gerado_em|date:"d/m/Y H:i" }}</span>
+      </li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============ CORPO ============ -->
+{% for n in niveis %}
+<div class="card quebra-pagina">
+  <div class="card-body">
+    <div class="card-titulo">
+      <h2><span class="selo-nivel">{{ n.nivel.numero }}</span> CERNE {{ n.nivel.numero }} — {{ n.nivel.nome }}</h2>
+      <span class="pill {{ n.percentual|pill_progresso }}">
+        {{ n.completas }} de {{ n.total }} completas · {{ n.percentual }}%
+      </span>
+    </div>
+
+    {% for p in n.processos %}
+      <h3 class="mt-4">{{ p.processo.codigo }} {{ p.processo.nome }}</h3>
+      {% if p.processo.descricao %}
+        <p class="text-muted small">{{ p.processo.descricao }}</p>
+      {% endif %}
+
+      {% for item in p.praticas %}
+        <div class="dossie-pratica borda-suave p-3 mb-3">
+          <h4 class="d-flex gap-2 align-items-center flex-wrap">
+            <span>{{ item.pratica.codigo }} {{ item.pratica.nome }}</span>
+            {% if item.completa %}
+              <span class="pill ok">completa</span>
+            {% else %}
+              <span class="pill andamento">pendente</span>
+            {% endif %}
+          </h4>
+
+          <p class="text-muted small mb-2">
+            Situação: <strong>{{ item.situacao_display }}</strong>
+            {% if item.status %}
+              · {{ item.status.percentual }}% implantada
+              · atualizado em {{ item.status.atualizado_em|date:"d/m/Y" }}
+            {% endif %}
+          </p>
+
+          {% if item.status.observacoes %}
+            <p class="small">{{ item.status.observacoes }}</p>
+          {% endif %}
+
+          <!-- requisitos e evidências -->
+          {% if item.requisitos %}
+            <div class="rotulo-secao mt-3">Requisitos de evidência</div>
+            <ul class="list-unstyled mb-0 small">
+              {% for req in item.requisitos %}
+                <li class="border-bottom py-2">
+                  <span class="marca-estado {% if req.id in req_atendidos %}ok{% else %}parado{% endif %}" aria-hidden="true">
+                    <i class="bi {% if req.id in req_atendidos %}bi-check-circle-fill{% else %}bi-circle{% endif %}"></i>
+                  </span>
+                  {{ req.descricao }}
+                  {% if not req.obrigatorio %}<span class="pill parado">opcional</span>{% endif %}
+
+                  {% with anexos=item.evidencias %}
+                    <ul class="mt-1 mb-0">
+                      {% for e in anexos %}
+                        {% if e.requisito_id == req.id %}
+                          <li>
+                            <strong>{{ e.titulo }}</strong>
+                            <span class="text-muted">
+                              — {{ e.data_referencia|date:"d/m/Y"|default:"sem data" }}
+                              {% if e.responsavel %}· {{ e.responsavel }}{% endif %}
+                            </span>
+                            {% if e.arquivo %}
+                              <br><a href="{% url 'evidencia_arquivo' e.pk %}" class="quebrar">{{ e.arquivo.name }}</a>
+                            {% elif e.link %}
+                              <br><a href="{{ e.link }}" class="quebrar">{{ e.link }}</a>
+                            {% endif %}
+                            {% if e.descricao %}<br><span class="text-muted">{{ e.descricao }}</span>{% endif %}
+                          </li>
+                        {% endif %}
+                      {% endfor %}
+                    </ul>
+                  {% endwith %}
+                </li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+
+          {% comment %}
+            Evidências que não foram vinculadas a nenhum requisito. Sem este
+            bloco elas ficariam invisíveis no dossiê, porque a listagem acima
+            percorre os requisitos. Aparecem separadas e sinalizadas, para o
+            auditor saber que o parque as considera relevantes mesmo sem
+            vínculo formal.
+          {% endcomment %}
+          {% with soltas=item.evidencias|sem_requisito %}
+            {% if soltas %}
+              <div class="rotulo-secao mt-3">Outras evidências anexadas</div>
+              <ul class="list-unstyled mb-0 small">
+                {% for e in soltas %}
+                  <li class="border-bottom py-2">
+                    <strong>{{ e.titulo }}</strong>
+                    <span class="text-muted">
+                      — {{ e.data_referencia|date:"d/m/Y"|default:"sem data" }}
+                      {% if e.responsavel %}· {{ e.responsavel }}{% endif %}
+                    </span>
+                    <span class="pill andamento">sem requisito vinculado</span>
+                    {% if e.arquivo %}
+                      <br><a href="{% url 'evidencia_arquivo' e.pk %}" class="quebrar">{{ e.arquivo.name }}</a>
+                    {% elif e.link %}
+                      <br><a href="{{ e.link }}" class="quebrar">{{ e.link }}</a>
+                    {% endif %}
+                    {% if e.descricao %}<br><span class="text-muted">{{ e.descricao }}</span>{% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+          {% endwith %}
+
+          <!-- métricas -->
+          {% if item.metricas %}
+            <div class="rotulo-secao mt-3">Métricas</div>
+            <ul class="list-unstyled mb-0 small">
+              {% for bloco in item.metricas %}
+                <li class="border-bottom py-2">
+                  <span class="marca-estado {% if bloco.medicoes %}ok{% else %}parado{% endif %}" aria-hidden="true">
+                    <i class="bi {% if bloco.medicoes %}bi-check-circle-fill{% else %}bi-circle{% endif %}"></i>
+                  </span>
+                  <strong>{{ bloco.metrica.nome }}</strong>
+                  {% if bloco.metrica.unidade %}<span class="text-muted">({{ bloco.metrica.unidade }})</span>{% endif %}
+                  {% if bloco.metrica.meta %}<span class="text-muted">· meta: {{ bloco.metrica.meta }}</span>{% endif %}
+                  {% if not bloco.metrica.obrigatoria %}<span class="pill parado">sugestão</span>{% endif %}
+                  <br>
+                  {% if bloco.medicoes %}
+                    {% for med in bloco.medicoes %}
+                      <span class="numeros-tabulares">{{ med.valor|floatformat:"-2" }}</span>
+                      ({{ med.data|date:"d/m/Y" }}){% if not forloop.last %} · {% endif %}
+                    {% endfor %}
+                  {% else %}
+                    <span class="text-muted">sem medição registrada</span>
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+
+          <!-- revisões -->
+          {% if item.aprendizados %}
+            <div class="rotulo-secao mt-3">Revisões críticas</div>
+            <ul class="small mb-0">
+              {% for a in item.aprendizados %}
+                <li>
+                  <strong>{{ a.data|date:"d/m/Y" }}</strong>
+                  {% if a.periodo %}· {{ a.periodo }}{% endif %}
+                  {% if a.necessita_ajustes %}<span class="pill andamento">requer ajustes</span>{% endif %}
+                  <br><span class="text-muted">
+                    Eficiência: {{ a.eficiencia|default:"—" }} |
+                    Eficácia: {{ a.eficacia|default:"—" }} |
+                    Efetividade: {{ a.efetividade|default:"—" }}
+                  </span>
+                </li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+
+          <!-- planos -->
+          {% if item.planos %}
+            <div class="rotulo-secao mt-3">Planos de ação</div>
+            <ul class="small mb-0">
+              {% for pl in item.planos %}
+                <li>
+                  {{ pl.descricao }}
+                  <span class="text-muted">
+                    — {{ pl.get_situacao_display }}{% if pl.prazo %}, prazo {{ pl.prazo|date:"d/m/Y" }}{% endif %}
+                  </span>
+                </li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+
+          <!-- pendências -->
+          {% if not item.completa %}
+            <div class="alert alert-warning mt-3 mb-0" role="alert">
+              <strong>Pendências:</strong>
+              <ul class="mb-0">
+                {% for f in item.faltas %}<li>{{ f }}</li>{% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% endfor %}
+  </div>
+</div>
+{% empty %}
+  <div class="vazio-estado">
+    <i class="bi bi-file-earmark" aria-hidden="true"></i>
+    Nada a mostrar neste escopo.
+  </div>
+{% endfor %}
+{% endblock %}

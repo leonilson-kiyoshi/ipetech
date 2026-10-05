@@ -1,0 +1,25 @@
+# Dependências do Sistema de Acompanhamento CERNE — IpêTech Paraíso
+# Versões fixas (pinadas) para que o servidor instale exatamente o que foi testado.
+# O pip resolve as dependências transitivas automaticamente.
+
+# --- Núcleo ---
+Django==5.2.17
+pillow==12.3.0
+
+# --- Geração do dossiê em PDF ---
+xhtml2pdf==0.2.19
+
+# --- Arquivos estáticos (CSS/ícones) servidos pelo próprio Django ---
+# Evita precisar configurar nginx só para servir estáticos.
+whitenoise==6.12.0
+
+# --- Armazenamento das evidências no Google Cloud Storage ---
+# Usado apenas quando CERNE_GCS_BUCKET está definido no ambiente.
+# Em desenvolvimento, sem essa variável, os arquivos ficam na pasta media/.
+django-storages==1.14.6
+google-cloud-storage==3.15.0
+
+# --- Banco de dados PostgreSQL (produção) ---
+# Usado apenas quando CERNE_DB_ENGINE=postgres.
+# Em desenvolvimento, o padrão é SQLite, que já vem com o Python.
+psycopg[binary]==3.3.6

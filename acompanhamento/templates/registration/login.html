@@ -1,0 +1,102 @@
+{% load static %}<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entrar · Acompanhamento CERNE</title>
+  <meta name="color-scheme" content="light">
+  <link rel="stylesheet" href="{% static 'acompanhamento/vendor/bootstrap.min.css' %}">
+  <link rel="stylesheet" href="{% static 'acompanhamento/vendor/bootstrap-icons.css' %}">
+  <link rel="stylesheet" href="{% static 'acompanhamento/css/tema.css' %}">
+  <style>
+    body {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(140deg, #0a4c3f 0%, #073630 55%, #0e6a58 100%);
+      padding: 1.5rem;
+    }
+    .entrada { width: 100%; max-width: 410px; }
+    .entrada .marca {
+      display: flex; align-items: center; gap: .8rem;
+      justify-content: center; margin-bottom: 1.2rem; color: #fff;
+    }
+    .entrada .marca .simbolo {
+      width: 52px; height: 52px; border-radius: 14px;
+      background: linear-gradient(140deg, #f2b01e, #d99500);
+      color: #3a2800; display: grid; place-items: center; font-size: 1.6rem;
+      box-shadow: 0 6px 20px rgba(242,176,30,.35);
+    }
+    .entrada .marca .nome { font-weight: 750; font-size: 1.22rem; line-height: 1.15; }
+    .entrada .marca .sub {
+      font-size: .74rem; text-transform: uppercase; letter-spacing: .1em; color: #9dbdb5;
+    }
+    .entrada .card { border: 0; box-shadow: 0 20px 50px rgba(0,0,0,.28); }
+    .rodape-entrada { text-align: center; margin-top: 1.1rem; font-size: .82rem; color: #9dbdb5; }
+  </style>
+</head>
+<body>
+  <div class="entrada">
+    <div class="marca">
+      <span class="simbolo" aria-hidden="true"><i class="bi bi-tree-fill"></i></span>
+      <span>
+        <span class="nome">IpêTech Paraíso</span><br>
+        <span class="sub">Acompanhamento CERNE</span>
+      </span>
+    </div>
+
+    <div class="card">
+      <div class="card-body p-4">
+        <h1 class="h5 mb-1">Entrar no sistema</h1>
+        <p class="text-muted small mb-4">Use o usuário e a senha que o gestor cadastrou para você.</p>
+
+        {% if form.errors %}
+          <div class="alert alert-danger py-2 small" role="alert">
+            <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
+            Usuário ou senha incorretos. Tente novamente.
+          </div>
+        {% endif %}
+
+        {% if next and not form.errors %}
+          <div class="alert alert-info py-2 small" role="alert">
+            Faça login para continuar.
+          </div>
+        {% endif %}
+
+        <form method="post" action="{% url 'login' %}">
+          {% csrf_token %}
+          <div class="mb-3">
+            <label class="form-label" for="id_username">Usuário</label>
+            <div class="input-group">
+              <span class="input-group-text" aria-hidden="true"><i class="bi bi-person"></i></span>
+              <input type="text" name="username" id="id_username" class="form-control"
+                     autocomplete="username" autofocus required>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="id_password">Senha</label>
+            <div class="input-group">
+              <span class="input-group-text" aria-hidden="true"><i class="bi bi-lock"></i></span>
+              <input type="password" name="password" id="id_password" class="form-control"
+                     autocomplete="current-password" required>
+            </div>
+          </div>
+          <input type="hidden" name="next" value="{{ next }}">
+          <button type="submit" class="btn btn-primary w-100 btn-lg">
+            <i class="bi bi-box-arrow-in-right" aria-hidden="true"></i> Entrar
+          </button>
+        </form>
+
+        <div class="text-center mt-3">
+          <a href="{% url 'password_reset' %}" class="small text-decoration-none">Esqueci minha senha</a>
+        </div>
+      </div>
+    </div>
+
+    <p class="rodape-entrada">
+      Sistema interno de acompanhamento da certificação CERNE<br>
+      IpêTech Paraíso
+    </p>
+  </div>
+</body>
+</html>

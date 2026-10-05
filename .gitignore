@@ -1,0 +1,76 @@
+# Ambiente virtual
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Banco de dados SQLite (contém dados locais; use backup próprio)
+db.sqlite3
+db.sqlite3-journal
+
+# Arquivos de mídia enviados (evidências) — versione por backup, não no git
+media/
+
+# Configurações locais/segredos
+# ATENÇÃO: o .env guarda a SECRET_KEY, senhas de banco e de e-mail.
+# O .env.example (modelo, sem segredos) É versionado de propósito.
+.env
+.env.*
+!.env.example
+*.local
+
+# Credenciais de nuvem (conta de serviço do Google Cloud, etc.)
+*.json.key
+gcs-*.json
+service-account*.json
+credenciais*.json
+
+# Qualquer .json solto na RAIZ do projeto. O Google baixa a chave da conta de
+# serviço com nome imprevisível (ex.: ipetechcerne-a1b2c3d4.json), que não
+# casaria com as regras acima. Esta linha é a rede de segurança: se um arquivo
+# desses cair aqui por engano, ele não vai para o repositório.
+# (Só a raiz — arquivos .json dentro de subpastas, como os do app, seguem normais.)
+/*.json
+
+# Arquivos estáticos coletados por 'manage.py collectstatic' (são gerados)
+staticfiles/
+
+# Editores / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Backups gerados pelo comando 'python manage.py backup'
+backups/
+
+# Artefatos temporários de análise dos PDFs
+*.tmp
+
+# Saídas de teste e de comando capturadas em arquivo durante o
+# desenvolvimento. São logs de uma execução, não código.
+/t3.txt
+/_*.txt
+
+# ----------------------------------------------------------------------------
+# PDFs da metodologia CERNE (manuais, termos de referência, sumários e as
+# apresentações das sprints).
+#
+# Ficam fora do repositório por dois motivos:
+#   1. São material da ANPROTEC. Republicá-los em repositório público é risco
+#      de licenciamento.
+#   2. São ~46 MB, contra 1,3 MB do sistema inteiro. Sem eles, clonar o
+#      projeto fica instantâneo.
+#
+# O sistema NÃO depende deles: o catálogo CERNE (níveis, práticas, requisitos
+# e métricas) está no banco, carregado por 'manage.py seed_cerne'.
+# Continue guardando os PDFs nesta pasta para consulta — só não são versionados.
+#
+# A regra vale só para a raiz (/). PDFs enviados como evidência ficam em
+# media/, que já é ignorada acima.
+# ----------------------------------------------------------------------------
+/*.pdf

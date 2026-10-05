@@ -1,0 +1,149 @@
+{% load static %}<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}Acompanhamento CERNE{% endblock %} · {{ parque_nome|default:"IpêTech Paraíso" }}</title>
+  <meta name="color-scheme" content="light">
+  {# Bootstrap e ícones servidos pelo próprio sistema: funciona sem internet. #}
+  <link rel="stylesheet" href="{% static 'acompanhamento/vendor/bootstrap.min.css' %}">
+  <link rel="stylesheet" href="{% static 'acompanhamento/vendor/bootstrap-icons.css' %}">
+  <link rel="stylesheet" href="{% static 'acompanhamento/css/tema.css' %}">
+  {% block estilos %}{% endblock %}
+</head>
+<body>
+<a class="pular-conteudo" href="#conteudo">Pular para o conteúdo</a>
+
+{% url 'registrar' as url_registrar %}
+{% with secao=request.resolver_match.url_name %}
+<div class="app">
+
+  <!-- =============================== BARRA LATERAL =============================== -->
+  <aside class="lateral no-print">
+    <a class="lateral-marca" href="{% url 'dashboard' %}">
+      <span class="simbolo" aria-hidden="true"><i class="bi bi-tree-fill"></i></span>
+      <span>
+        <span class="nome">IpêTech Paraíso</span><br>
+        <span class="sub">Acompanhamento CERNE</span>
+      </span>
+    </a>
+
+    <div class="lateral-grupo">Registro</div>
+    <nav aria-label="Menu de registro">
+      <a href="{% url 'registrar' %}" class="destaque {% if secao == 'registrar' or secao == 'registrar_acao' %}ativo{% endif %}">
+        <i class="bi bi-plus-circle-fill" aria-hidden="true"></i> Registrar ação
+      </a>
+      <a href="{% url 'catalogo' %}" class="{% if secao == 'catalogo' or secao == 'pratica_detail' %}ativo{% endif %}">
+        <i class="bi bi-list-check" aria-hidden="true"></i> Práticas-chave
+      </a>
+      <a href="{% url 'empreendimentos' %}" class="{% if secao == 'empreendimentos' or secao == 'empreendimento_detail' %}ativo{% endif %}">
+        <i class="bi bi-rocket-takeoff" aria-hidden="true"></i> Empreendimentos
+      </a>
+      <a href="{% url 'arquivos' %}" class="{% if secao == 'arquivos' %}ativo{% endif %}">
+        <i class="bi bi-folder2-open" aria-hidden="true"></i> Arquivos
+      </a>
+    </nav>
+
+    <div class="lateral-grupo">Acompanhamento</div>
+    <nav aria-label="Menu de acompanhamento">
+      <a href="{% url 'dashboard' %}" class="{% if secao == 'dashboard' %}ativo{% endif %}">
+        <i class="bi bi-speedometer2" aria-hidden="true"></i> Painel
+      </a>
+      <a href="{% url 'auditoria' %}" class="{% if secao == 'auditoria' %}ativo{% endif %}">
+        <i class="bi bi-clipboard-data" aria-hidden="true"></i> O que falta
+      </a>
+      <a href="{% url 'dossie' %}" class="{% if secao == 'dossie' %}ativo{% endif %}">
+        <i class="bi bi-file-earmark-text" aria-hidden="true"></i> Dossiê
+      </a>
+    </nav>
+
+    <div class="lateral-grupo">Ajuda</div>
+    <nav aria-label="Menu de ajuda">
+      <a href="{% url 'guia' %}" class="{% if secao == 'guia' %}ativo{% endif %}">
+        <i class="bi bi-question-circle" aria-hidden="true"></i> Como preencher
+      </a>
+      <a href="{% url 'manual' %}" class="{% if secao == 'manual' %}ativo{% endif %}">
+        <i class="bi bi-book" aria-hidden="true"></i> Manual
+      </a>
+      {% if user.is_staff %}
+      <a href="{% url 'configuracao' %}" class="{% if secao == 'configuracao' %}ativo{% endif %}">
+        <i class="bi bi-gear" aria-hidden="true"></i> Configuração
+      </a>
+      {% endif %}
+    </nav>
+
+    <div class="lateral-pe">
+      {{ versao.nome|default:"CERNE 2025" }}<br>
+      <span style="opacity:.75">Sistema interno do parque</span>
+    </div>
+  </aside>
+
+  <!-- =============================== ÁREA PRINCIPAL =============================== -->
+  <div>
+    <header class="topo-app no-print">
+      <div class="contexto">
+        <div class="parque">
+          <i class="bi bi-geo-alt-fill" style="color:var(--ipe-verde)" aria-hidden="true"></i>
+          {{ mecanismo.nome|default:"IpêTech Paraíso" }}
+          {% if mecanismo.eh_exemplo %}<span class="pill destaque">dados de exemplo</span>{% endif %}
+        </div>
+        <div class="detalhe">
+          {% if mecanismo.cidade_uf %}{{ mecanismo.cidade_uf }} · {% endif %}
+          {% if mecanismo.nivel_almejado %}Meta: CERNE {{ mecanismo.nivel_almejado }} · {% endif %}
+          {{ versao.nome|default:"CERNE 2025" }}
+        </div>
+      </div>
+
+      <div class="direita">
+        <a class="btn btn-destaque btn-sm" href="{% url 'registrar' %}">
+          <i class="bi bi-plus-lg" aria-hidden="true"></i> Registrar ação
+        </a>
+
+        {% if user.is_authenticated %}
+        <div class="dropdown">
+          <button class="usuario-chip border-0" data-bs-toggle="dropdown" aria-expanded="false" type="button">
+            <span>{{ user.get_short_name|default:user.get_username }}</span>
+            <span class="avatar" aria-hidden="true">{{ user.get_username|slice:":1" }}</span>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end shadow">
+            <li class="dropdown-item-text small text-muted">
+              {% if user.is_superuser %}Gestor{% elif user.is_staff %}Equipe técnica{% else %}Consulta (leitura){% endif %}
+            </li>
+            <li><hr class="dropdown-divider"></li>
+            {% if user.is_superuser %}
+            <li><a class="dropdown-item" href="/admin/"><i class="bi bi-sliders" aria-hidden="true"></i> Admin avançado</a></li>
+            {% endif %}
+            <li>
+              <form method="post" action="{% url 'logout' %}" class="px-3 py-1">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline-secondary btn-sm w-100">
+                  <i class="bi bi-box-arrow-right" aria-hidden="true"></i> Sair
+                </button>
+              </form>
+            </li>
+          </ul>
+        </div>
+        {% endif %}
+      </div>
+    </header>
+
+    <main class="conteudo-app" id="conteudo" tabindex="-1">
+      {% if messages %}
+        {% for m in messages %}
+          <div class="alert alert-{{ m.tags|default:'info' }} d-flex align-items-start gap-2 no-print" role="alert">
+            <i class="bi {% if 'success' in m.tags %}bi-check-circle-fill{% elif 'error' in m.tags or 'danger' in m.tags %}bi-exclamation-octagon-fill{% elif 'warning' in m.tags %}bi-exclamation-triangle-fill{% else %}bi-info-circle-fill{% endif %}" aria-hidden="true"></i>
+            <div>{{ m }}</div>
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      {% block conteudo %}{% endblock %}
+    </main>
+  </div>
+</div>
+{% endwith %}
+
+<script src="{% static 'acompanhamento/vendor/bootstrap.bundle.min.js' %}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

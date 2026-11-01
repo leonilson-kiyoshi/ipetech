@@ -347,11 +347,16 @@
         var faltas = item.faltas.map(function (f) {
           return '<li>' + esc(f) + '</li>';
         }).join('');
+        var resp = Store.statusDe(item.pratica.codigo).responsavel_pendencia;
         return (
           '<div class="dossie-pratica">' +
           '<a class="negrito" href="#/pratica/' + encodeURIComponent(item.pratica.codigo) + '">' +
           esc(item.pratica.codigo) + ' ' + esc(item.pratica.nome) + '</a>' +
           '<ul class="lista-faltas">' + faltas + '</ul>' +
+          (resp
+            ? '<p class="pequeno suave sem-margem">Responsável por complementar: <strong>' +
+              esc(resp) + '</strong></p>'
+            : '') +
           '</div>'
         );
       }).join('');
@@ -910,7 +915,12 @@
         : '<div class="aviso atencao"><strong>Para esta prática ficar completa:</strong>' +
           '<ul class="lista-faltas">' + faltas.map(function (f) {
             return '<li>' + esc(f) + '</li>';
-          }).join('') + '</ul></div>') +
+          }).join('') + '</ul>' +
+          (st.responsavel_pendencia
+            ? '<p class="pequeno sem-margem">Responsável por complementar: <strong>' +
+              esc(st.responsavel_pendencia) + '</strong></p>'
+            : '') +
+          '</div>') +
 
       '<div class="cartao">' +
       (pr.objetivo ? '<p class="rotulo-secao">Objetivo</p><p>' + esc(pr.objetivo) + '</p>' : '') +
@@ -938,6 +948,11 @@
       '</div>' +
       '<div class="campo"><label for="st-obs">Observações</label>' +
       '<textarea id="st-obs" name="observacoes"' + trava() + '>' + esc(st.observacoes) + '</textarea></div>' +
+      '<div class="campo"><label for="st-responsavel-pendencia">Responsável por complementar as pendências</label>' +
+      '<input type="text" id="st-responsavel-pendencia" name="responsavel_pendencia" value="' +
+      esc(st.responsavel_pendencia || '') + '"' + trava() +
+      ' placeholder="quem vai providenciar o que falta (opcional)">' +
+      '<span class="ajuda">Opcional. Aparece na lista de pendências. Não afeta o cálculo de prontidão.</span></div>' +
       (somenteLeitura ? '' : '<button type="submit" class="botao">Salvar situação</button>') +
       '</form></div>' +
 
@@ -1523,6 +1538,67 @@
       '<button type="submit" class="botao">Salvar avaliação</button>' +
       '</form>';
 
+    /* ---- documentos e anexos do empreendimento (Fase 2) ---- */
+    var documentos = (e.documentos || []).slice().sort(function (a, b) {
+      return String(b.data_referencia || b.criado_em || '')
+        .localeCompare(String(a.data_referencia || a.criado_em || ''));
+    });
+    var docsHtml = documentos.length
+      ? '<ul class="lista">' + documentos.map(function (d) {
+          var anexo = d.arquivo && d.arquivo.url ? d.arquivo : null;
+          var link = urlSegura(d.link);
+          return (
+            '<li><span style="flex:1;min-width:0">' +
+            '<strong>' + esc(d.titulo) + '</strong>' +
+            (anexo
+              ? ' · <a href="' + esc(urlSegura(anexo.url)) + '" target="_blank" ' +
+                'rel="noopener noreferrer" class="quebra">baixar arquivo</a>'
+              : '') +
+            (link ? ' · <a href="' + esc(link) + '" target="_blank" rel="noopener noreferrer" class="quebra">abrir link</a>' : '') +
+            '<br><span class="pequeno suave quebra">' +
+            (anexo ? esc(anexo.nome) + ' · ' + tamanhoLegivel(anexo.tamanho) + ' · ' : '') +
+            (d.descricao ? esc(d.descricao) + ' · ' : '') +
+            'ref. ' + dataBR(d.data_referencia) +
+            '</span></span>' +
+            (somenteLeitura ? '' :
+              '<button type="button" class="botao secundario pequeno nao-imprimir" ' +
+              'data-remover-documento="' + esc(d.id) + '">Remover</button>') +
+            '</li>'
+          );
+        }).join('') + '</ul>'
+      : '<p class="pequeno suave">Nenhum documento anexado. Inscrições, pitches, ' +
+        'avaliações, entregas e outros documentos podem ficar aqui, vinculados ao ' +
+        'empreendimento.</p>';
+
+    var formDoc = somenteLeitura ? '' :
+      '<details class="bloco-adicionar nao-imprimir"><summary>+ Anexar documento</summary>' +
+      '<form id="form-documento-emp">' +
+      '<div class="linha-campos">' +
+      '<div class="campo"><label>Título</label>' +
+      '<input type="text" name="titulo" required placeholder="ex.: Pitch de seleção"></div>' +
+      '<div class="campo"><label>Data de referência</label>' +
+      '<input type="date" name="data_referencia" value="' + hoje() + '"></div>' +
+      '</div>' +
+      (podeAnexar()
+        ? '<div class="campo campo-arquivo">' +
+          '<label>Anexar arquivo</label>' +
+          '<input type="file" name="arquivo" accept="' + aceitaArquivos() + '">' +
+          '<span class="ajuda">PDF, Word, Excel, imagem, ZIP... até 20 MB. ' +
+          'O arquivo fica guardado no sistema.</span>' +
+          '<div class="envio-barra" hidden><div class="envio-trilha">' +
+          '<span></span></div><span class="envio-texto"></span></div>' +
+          '</div>'
+        : '') +
+      '<div class="linha-campos">' +
+      '<div class="campo"><label>' +
+      (podeAnexar() ? 'Ou link externo' : 'Link') + '</label>' +
+      '<input type="url" name="link" placeholder="https://... ou link da pasta compartilhada"></div>' +
+      '<div class="campo"><label>Descrição</label>' +
+      '<input type="text" name="descricao" placeholder="o que é este documento"></div>' +
+      '</div>' +
+      '<button type="submit" class="botao pequeno">Anexar documento</button>' +
+      '</form></details>';
+
     return (
       '<p class="trilha nao-imprimir"><a href="#/empreendimentos">Empreendimentos</a> › ' +
       esc(e.nome) + '</p>' +
@@ -1582,6 +1658,14 @@
         '<button type="button" class="botao perigo pequeno" id="btn-excluir-emp">Excluir</button>' +
         '</div></form>') +
       '</div></div>' +
+
+      '<div class="cartao">' +
+      '<div class="cartao-titulo"><h2>Documentos e anexos</h2>' +
+      '<span class="pequeno suave">' + (e.documentos || []).length + ' anexado(s)</span></div>' +
+      '<p class="pequeno suave">Inscrições, pitches, avaliações, entregas e outros ' +
+      'documentos do empreendimento, reunidos no mesmo cadastro.</p>' +
+      docsHtml + formDoc +
+      '</div>' +
 
       '<div class="cartao">' +
       '<div class="cartao-titulo"><h2>Histórico de avaliações</h2></div>' +
@@ -1675,6 +1759,369 @@
         ir('#/empreendimentos');
       });
     }
+
+    var formDoc = doc.getElementById('form-documento-emp');
+    if (formDoc) {
+      formDoc.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        enviarDocumentoEmpreendimento(formDoc, id);
+      });
+    }
+
+    Array.prototype.forEach.call(
+      doc.querySelectorAll('[data-remover-documento]'),
+      function (botao) {
+        botao.addEventListener('click', function () {
+          if (!global.confirm('Remover este documento?')) return;
+          var alvo = botao.getAttribute('data-remover-documento');
+          var removido = (e.documentos || []).filter(function (x) { return x.id === alvo; })[0];
+          // Se o documento tinha arquivo no Storage, apaga para não deixar
+          // arquivo órfão ocupando espaço.
+          if (removido && removido.arquivo && removido.arquivo.path && Store.removerArquivo) {
+            Store.removerArquivo(removido.arquivo.path);
+          }
+          Store.atualizarEm('empreendimentos', id, {
+            documentos: (e.documentos || []).filter(function (x) { return x.id !== alvo; })
+          });
+          avisar('Documento removido.');
+          renderizar();
+        });
+      }
+    );
+  };
+
+  /** Anexa um documento ao empreendimento. No modo nuvem, envia o arquivo
+   *  primeiro (para o caminho empreendimentos/{id}/{ano}/) e só então grava o
+   *  registro na lista `documentos`; no modo local, aceita apenas link. */
+  function enviarDocumentoEmpreendimento(form, id) {
+    var e = Store.empreendimentoPorId(id);
+    if (!e) return;
+    var d = dadosDoForm(form);
+    if (!d.titulo || !d.titulo.trim()) return;
+
+    var arquivos = d.arquivo;
+    var arquivo = arquivos && arquivos.length ? arquivos[0] : null;
+    var podeEmp = typeof Store.enviarArquivoEmpreendimento === 'function';
+
+    function gravar(anexo) {
+      var registro = {
+        id: Store.novoId(),
+        titulo: d.titulo.trim(),
+        descricao: (d.descricao || '').trim(),
+        data_referencia: d.data_referencia || '',
+        link: (d.link || '').trim(),
+        criado_em: new Date().toISOString()
+      };
+      if (anexo) registro.arquivo = anexo;
+      var docs = (e.documentos || []).slice();
+      docs.push(registro);
+      Store.atualizarEm('empreendimentos', id, { documentos: docs });
+      avisar(anexo ? 'Documento anexado com o arquivo.' : 'Documento anexado.');
+      renderizar();
+    }
+
+    // Sem arquivo (ou modo local): grava direto, só com o link.
+    if (!arquivo || !podeEmp) {
+      gravar(null);
+      return;
+    }
+
+    var problema = Store.conferirArquivo(arquivo);
+    if (problema) { global.alert(problema); return; }
+
+    var botao = form.querySelector('button[type="submit"]');
+    var caixaBarra = form.querySelector('.envio-barra');
+    var preenchimento = caixaBarra && caixaBarra.querySelector('.envio-trilha > span');
+    var textoBarra = caixaBarra && caixaBarra.querySelector('.envio-texto');
+
+    function mostrarProgresso(pct) {
+      if (caixaBarra) caixaBarra.hidden = false;
+      if (preenchimento) preenchimento.style.width = pct + '%';
+      if (textoBarra) textoBarra.textContent = 'Enviando... ' + pct + '%';
+    }
+
+    if (botao) { botao.disabled = true; botao.textContent = 'Enviando arquivo...'; }
+    mostrarProgresso(0);
+
+    Store.enviarArquivoEmpreendimento(id, d.data_referencia, arquivo, mostrarProgresso)
+      .then(function (anexo) { gravar(anexo); })
+      .catch(function (erro) {
+        console.error('Falha ao enviar o arquivo:', erro);
+        if (botao) { botao.disabled = false; botao.textContent = 'Anexar documento'; }
+        if (textoBarra) textoBarra.textContent = '';
+        if (caixaBarra) caixaBarra.hidden = true;
+        global.alert('Não foi possível enviar o arquivo:\n\n' + (erro && erro.message));
+      });
+  }
+
+  /* ------------------------------------------------------------ atividades */
+
+  // Filtros da lista de atividades. Vazio = mostra todas.
+  var filtroAtividades = { ano: '', tipo: '' };
+
+  Telas.atividades = function () {
+    var lista = Store.estado().atividades || [];
+    var somenteLeitura = !Store.podeEditar();
+
+    var anosDisponiveis = {};
+    lista.forEach(function (a) {
+      var y = String(a.data_realizacao || '').slice(0, 4);
+      if (/^\d{4}$/.test(y)) anosDisponiveis[y] = true;
+    });
+    var anosFiltro = [{ valor: '', rotulo: 'Todos os anos' }].concat(
+      Object.keys(anosDisponiveis).sort().reverse().map(function (y) {
+        return { valor: y, rotulo: y };
+      })
+    );
+    var tiposFiltro = [{ valor: '', rotulo: 'Todos os tipos' }]
+      .concat(Store.TIPOS_ATIVIDADE);
+
+    var filtradas = lista.filter(function (a) {
+      if (filtroAtividades.tipo && a.tipo !== filtroAtividades.tipo) return false;
+      if (filtroAtividades.ano &&
+          String(a.data_realizacao || '').slice(0, 4) !== filtroAtividades.ano) return false;
+      return true;
+    }).sort(function (a, b) {
+      return String(b.data_realizacao || '').localeCompare(String(a.data_realizacao || ''));
+    });
+
+    var linhas = filtradas.map(function (a) {
+      var emp = a.empreendimento && Store.empreendimentoPorId
+        ? Store.empreendimentoPorId(a.empreendimento) : null;
+      var vinc = [];
+      if (a.pratica) vinc.push('Prática ' + esc(a.pratica));
+      if (emp) vinc.push('Startup: ' + esc(emp.nome));
+      else if (a.empreendimento) vinc.push('Startup: (empreendimento removido)');
+      if (a.programa) vinc.push('Programa: ' + esc(a.programa));
+      return (
+        '<tr>' +
+        '<td class="pequeno">' +
+        (a.protocolo ? '<span class="etiqueta azul">' + esc(a.protocolo) + '</span>' : '—') +
+        '</td>' +
+        '<td><strong>' + esc(a.titulo) + '</strong>' +
+        (a.descricao ? '<br><span class="pequeno suave">' + esc(a.descricao) + '</span>' : '') +
+        (vinc.length ? '<br><span class="pequeno suave">' + vinc.join(' · ') + '</span>' : '') +
+        '</td>' +
+        '<td>' + esc(Store.rotuloDe(Store.TIPOS_ATIVIDADE, a.tipo)) + '</td>' +
+        '<td class="pequeno">' + esc(a.local || '—') + '</td>' +
+        '<td class="pequeno">' + esc(a.responsavel || '—') + '</td>' +
+        '<td>' + dataBR(a.data_realizacao) + '</td>' +
+        (somenteLeitura ? '' :
+          '<td class="numero nao-imprimir"><button type="button" class="botao secundario pequeno" ' +
+          'data-remover-atividade="' + esc(a.id) + '">Remover</button></td>') +
+        '</tr>'
+      );
+    }).join('');
+
+    var opcoesEmp = '<option value="">— nenhum —</option>' +
+      (Store.estado().empreendimentos || []).map(function (e) {
+        return '<option value="' + esc(e.id) + '">' + esc(e.nome) +
+          (e.codigo ? ' (' + esc(e.codigo) + ')' : '') + '</option>';
+      }).join('');
+    var opcoesPratica = '<option value="">— nenhuma —</option>' +
+      Store.praticas.map(function (i) {
+        return '<option value="' + esc(i.pratica.codigo) + '">' +
+          esc(i.pratica.codigo) + ' ' + esc(i.pratica.nome) + '</option>';
+      }).join('');
+
+    var form = somenteLeitura ? '' :
+      '<details class="bloco nao-imprimir"><summary>+ Registrar atividade</summary>' +
+      '<form id="form-atividade">' +
+      '<div class="linha-campos tres">' +
+      '<div class="campo"><label>Título</label>' +
+      '<input type="text" name="titulo" required placeholder="ex.: Palestra sobre inovação"></div>' +
+      '<div class="campo"><label>Tipo</label>' +
+      '<select name="tipo">' + opcoes(Store.TIPOS_ATIVIDADE, 'evento') + '</select></div>' +
+      '<div class="campo"><label>Data de realização</label>' +
+      '<input type="date" name="data_realizacao" value="' + hoje() + '"></div>' +
+      '</div>' +
+      '<div class="linha-campos tres">' +
+      '<div class="campo"><label>Local</label>' +
+      '<input type="text" name="local" placeholder="onde ocorreu"></div>' +
+      '<div class="campo"><label>Responsável</label><input type="text" name="responsavel"></div>' +
+      '<div class="campo"><label>Programa (opcional)</label>' +
+      '<input type="text" name="programa" placeholder="ex.: Projeto MUDA 2026/1"></div>' +
+      '</div>' +
+      '<div class="linha-campos">' +
+      '<div class="campo"><label>Prática CERNE (opcional)</label>' +
+      '<select name="pratica">' + opcoesPratica + '</select></div>' +
+      '<div class="campo"><label>Vincular a empreendimento (opcional)</label>' +
+      '<select name="empreendimento">' + opcoesEmp + '</select></div>' +
+      '</div>' +
+      '<div class="campo"><label>Descrição</label>' +
+      '<textarea name="descricao" placeholder="o que foi feito, objetivos, resultados"></textarea></div>' +
+      '<p class="pequeno suave sem-margem">O protocolo (ATV-AAAA-000) é gerado ' +
+      'automaticamente ao registrar.</p>' +
+      '<button type="submit" class="botao">Registrar atividade</button>' +
+      '</form></details>';
+
+    return (
+      '<h1>Atividades</h1>' +
+      '<p class="suave">Eventos, reuniões, capacitações e outras ações do parque. Cada ' +
+      'atividade recebe um protocolo e pode ser vinculada a uma prática, a um empreendimento ' +
+      'e a um programa.</p>' +
+
+      avisoConsulta() +
+
+      '<div class="cartao nao-imprimir"><div class="filtros">' +
+      '<div class="campo sem-margem"><label for="f-atv-ano">Ano</label>' +
+      '<select id="f-atv-ano">' + opcoes(anosFiltro, filtroAtividades.ano) + '</select></div>' +
+      '<div class="campo sem-margem"><label for="f-atv-tipo">Tipo</label>' +
+      '<select id="f-atv-tipo">' + opcoes(tiposFiltro, filtroAtividades.tipo) + '</select></div>' +
+      '</div></div>' +
+
+      '<div class="cartao">' + form +
+      (linhas
+        ? '<div class="tabela-rolagem"><table class="tabela"><thead><tr>' +
+          '<th>Protocolo</th><th>Atividade</th><th>Tipo</th><th>Local</th>' +
+          '<th>Responsável</th><th>Realização</th>' +
+          (somenteLeitura ? '' : '<th class="numero nao-imprimir">Ações</th>') +
+          '</tr></thead><tbody>' + linhas + '</tbody></table></div>'
+        : '<div class="vazio">' +
+          (lista.length
+            ? 'Nenhuma atividade com esses filtros.'
+            : 'Nenhuma atividade registrada ainda.') +
+          '</div>') +
+      '</div>'
+    );
+  };
+
+  Telas.atividades.ligar = function () {
+    var fAno = doc.getElementById('f-atv-ano');
+    if (fAno) fAno.addEventListener('change', function () {
+      filtroAtividades.ano = fAno.value; renderizar();
+    });
+    var fTipo = doc.getElementById('f-atv-tipo');
+    if (fTipo) fTipo.addEventListener('change', function () {
+      filtroAtividades.tipo = fTipo.value; renderizar();
+    });
+
+    var form = doc.getElementById('form-atividade');
+    if (form) {
+      form.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var d = dadosDoForm(form);
+        if (!d.titulo || !d.titulo.trim()) return;
+        Store.criarEm('atividades', {
+          tipo: d.tipo || 'evento',
+          titulo: d.titulo.trim(),
+          descricao: (d.descricao || '').trim(),
+          data_realizacao: d.data_realizacao || '',
+          local: (d.local || '').trim(),
+          responsavel: (d.responsavel || '').trim(),
+          pratica: (d.pratica || '').trim(),
+          empreendimento: (d.empreendimento || '').trim(),
+          programa: (d.programa || '').trim()
+        });
+        avisar('Atividade registrada.');
+        renderizar();
+      });
+    }
+
+    Array.prototype.forEach.call(
+      doc.querySelectorAll('[data-remover-atividade]'),
+      function (botao) {
+        botao.addEventListener('click', function () {
+          if (!global.confirm('Remover esta atividade?')) return;
+          Store.removerEm('atividades', botao.getAttribute('data-remover-atividade'));
+          avisar('Atividade removida.');
+          renderizar();
+        });
+      }
+    );
+  };
+
+  /* ------------------------------------------------------------- histórico */
+
+  // Filtro por período da tela de histórico (datas ISO, vazio = sem limite).
+  var filtroHistorico = { de: '', ate: '' };
+
+  Telas.historico = function () {
+    // Histórico depende de gravação central no modo nuvem. No modo local ele é
+    // opcional e não é mantido, então a tela apenas explica isso.
+    if (!naNuvem()) {
+      return (
+        '<h1>Histórico de alterações</h1>' +
+        '<div class="aviso info">O histórico (quem alterou o quê e quando) existe no ' +
+        'modo com login, onde os dados são compartilhados pela equipe. No modo local, ' +
+        'sem login, não há registro de histórico.</div>'
+      );
+    }
+
+    var lista = (Store.estado().historico || []).slice().sort(function (a, b) {
+      return String(b.quando || '').localeCompare(String(a.quando || ''));
+    });
+
+    var filtrada = lista.filter(function (h) {
+      var dia = String(h.quando || '').slice(0, 10);
+      if (filtroHistorico.de && dia && dia < filtroHistorico.de) return false;
+      if (filtroHistorico.ate && dia && dia > filtroHistorico.ate) return false;
+      return true;
+    });
+
+    var ROTULO_COL = {
+      evidencias: 'Evidências', medicoes: 'Medições', revisoes: 'Revisões',
+      planos: 'Planos de ação', empreendimentos: 'Empreendimentos', atividades: 'Atividades'
+    };
+    var ROTULO_ACAO = { criar: 'Cadastro', editar: 'Edição', remover: 'Remoção' };
+
+    var linhas = filtrada.map(function (h) {
+      var cor = h.acao === 'remover' ? 'vermelha' : h.acao === 'editar' ? 'amarela' : 'verde';
+      return (
+        '<tr>' +
+        '<td class="pequeno">' + dataHoraBR(h.quando) + '</td>' +
+        '<td><span class="etiqueta ' + cor + '">' +
+        esc(ROTULO_ACAO[h.acao] || h.acao) + '</span></td>' +
+        '<td class="pequeno">' + esc(ROTULO_COL[h.colecao] || h.colecao) + '</td>' +
+        '<td>' + esc(h.resumo || '') + '</td>' +
+        '<td class="pequeno">' + esc(h.quem_nome || '') + '</td>' +
+        '</tr>'
+      );
+    }).join('');
+
+    return (
+      '<h1>Histórico de alterações</h1>' +
+      '<p class="suave">Registro de quem cadastrou, editou ou removeu informações, e ' +
+      'quando. Somente leitura — serve de trilha de auditoria.</p>' +
+
+      '<div class="cartao nao-imprimir"><div class="filtros">' +
+      '<div class="campo sem-margem"><label for="f-hist-de">De</label>' +
+      '<input type="date" id="f-hist-de" value="' + esc(filtroHistorico.de) + '"></div>' +
+      '<div class="campo sem-margem"><label for="f-hist-ate">Até</label>' +
+      '<input type="date" id="f-hist-ate" value="' + esc(filtroHistorico.ate) + '"></div>' +
+      '<div class="campo sem-margem" style="align-self:end">' +
+      '<button type="button" class="botao secundario" id="btn-hist-limpar">Limpar período</button>' +
+      '</div>' +
+      '</div></div>' +
+
+      '<div class="cartao">' +
+      (linhas
+        ? '<div class="tabela-rolagem"><table class="tabela"><thead><tr>' +
+          '<th>Quando</th><th>Ação</th><th>Onde</th><th>Resumo</th><th>Quem</th>' +
+          '</tr></thead><tbody>' + linhas + '</tbody></table></div>'
+        : '<div class="vazio">' +
+          (lista.length
+            ? 'Nenhum registro no período escolhido.'
+            : 'Nenhuma alteração registrada ainda. Assim que a equipe cadastrar, editar ' +
+              'ou remover algo, aparece aqui.') +
+          '</div>') +
+      '</div>'
+    );
+  };
+
+  Telas.historico.ligar = function () {
+    var de = doc.getElementById('f-hist-de');
+    if (de) de.addEventListener('change', function () {
+      filtroHistorico.de = de.value; renderizar();
+    });
+    var ate = doc.getElementById('f-hist-ate');
+    if (ate) ate.addEventListener('change', function () {
+      filtroHistorico.ate = ate.value; renderizar();
+    });
+    var limpar = doc.getElementById('btn-hist-limpar');
+    if (limpar) limpar.addEventListener('click', function () {
+      filtroHistorico = { de: '', ate: '' }; renderizar();
+    });
   };
 
   /* ----------------------------------------------------------------- dossiê */
@@ -2417,19 +2864,26 @@
     { hash: '#/', rotulo: 'Painel', icone: '◈' },
     { hash: '#/catalogo', rotulo: 'Práticas', icone: '☰' },
     { hash: '#/empreendimentos', rotulo: 'Empreendimentos', icone: '◉' },
+    { hash: '#/atividades', rotulo: 'Atividades', icone: '◷' },
     { hash: '#/dossie', rotulo: 'Dossiê', icone: '▤' },
     { grupo: 'Configuração' },
     { hash: '#/pessoas', rotulo: 'Equipe', icone: '◎', soGestorNaNuvem: true },
+    { hash: '#/historico', rotulo: 'Histórico', icone: '↻', soNaNuvem: true },
     { hash: '#/dados', rotulo: 'Dados e backup', icone: '⇅' },
     { hash: '#/guia', rotulo: 'Guia de uso', icone: '?' }
   ];
 
-  /** A tela de equipe só faz sentido no modo com login, e só para o gestor.
-   *  Isto é conveniência de navegação: quem manda de verdade são as regras
-   *  do Firestore, no servidor do Google. */
+  /** Alguns itens só fazem sentido em certos modos. Isto é conveniência de
+   *  navegação: quem manda de verdade são as regras do Firestore, no servidor
+   *  do Google.
+   *    - Equipe: modo com login E gestor.
+   *    - Histórico: modo com login (a trilha é mantida na nuvem). */
   function itemDoMenuVisivel(item) {
-    if (!item.soGestorNaNuvem) return true;
-    return !!(Store && Store.listarPessoas && Store.ehGestor && Store.ehGestor());
+    if (item.soGestorNaNuvem) {
+      return !!(Store && Store.listarPessoas && Store.ehGestor && Store.ehGestor());
+    }
+    if (item.soNaNuvem) return !!(Store && Store.naNuvem);
+    return true;
   }
 
   function rotaAtual() {
@@ -2444,6 +2898,7 @@
   function renderizarMenu(nomeRota) {
     var atalhos = { '': 'dashboard', 'catalogo': 'catalogo', 'pratica': 'catalogo',
       'empreendimentos': 'empreendimentos', 'empreendimento': 'empreendimentos',
+      'atividades': 'atividades', 'historico': 'historico',
       'dossie': 'dossie', 'dados': 'dados', 'guia': 'guia' };
     var ativo = atalhos[nomeRota] || nomeRota;
 
@@ -2521,6 +2976,7 @@
     var titulos = {
       dashboard: 'Painel', catalogo: 'Práticas', pratica: 'Prática',
       empreendimentos: 'Empreendimentos', empreendimento: 'Empreendimento',
+      atividades: 'Atividades', historico: 'Histórico',
       dossie: 'Dossiê', dados: 'Dados e backup', guia: 'Guia de uso',
       pessoas: 'Equipe'
     };

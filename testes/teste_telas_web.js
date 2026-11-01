@@ -707,6 +707,101 @@ function esperarPromessas() {
   delete Store.simularPapel;
   delete Store.ehGestor;
 
+  /* -------------------------------------------------------------------------
+     Fase 2 — Atividades
+
+     Coleção nova de eventos, reuniões, capacitações e outras ações. A tela
+     precisa abrir vazia sem erro, oferecer o cadastro com os tipos, gerar o
+     protocolo ATV-AAAA-000 e listar o que foi registrado, com os vínculos.
+  ------------------------------------------------------------------------- */
+
+  console.log('\n20) Tela de Atividades (Fase 2)');
+
+  Store.limpar();
+  html = renderizarRota('#/atividades');
+  verificar('Atividades renderiza sem erro',
+    html.indexOf('Ocorreu um erro ao montar esta tela') === -1 && html.length > 200,
+    html.slice(0, 220));
+  verificar('Atividades mostra vazio quando não há nada',
+    html.indexOf('Nenhuma atividade registrada') !== -1);
+  verificar('Atividades oferece o formulário de cadastro',
+    html.indexOf('id="form-atividade"') !== -1);
+  verificar('o cadastro traz os tipos de atividade',
+    html.indexOf('value="evento"') !== -1 && html.indexOf('value="reuniao"') !== -1 &&
+    html.indexOf('value="capacitacao"') !== -1 && html.indexOf('value="outra"') !== -1);
+  verificar('o menu oferece Atividades', menuHtml().indexOf('Atividades') !== -1);
+
+  Store.criarEm('atividades', {
+    tipo: 'evento', titulo: 'Palestra de inovação', descricao: 'Abertura do semestre',
+    data_realizacao: '2026-03-10', local: 'Auditório', responsavel: 'Equipe',
+    pratica: '1.1.1', empreendimento: '', programa: 'Projeto MUDA 2026/1'
+  });
+  const atvCriada = Store.estado().atividades[0];
+  verificar('a atividade recebe protocolo ATV-AAAA-000',
+    /^ATV-2026-\d{3}$/.test(atvCriada.protocolo), atvCriada.protocolo);
+
+  html = renderizarRota('#/atividades');
+  verificar('a atividade cadastrada aparece na lista',
+    html.indexOf('Palestra de inovação') !== -1);
+  verificar('a lista mostra o protocolo', html.indexOf(atvCriada.protocolo) !== -1);
+  verificar('a lista mostra os vínculos (prática e programa)',
+    html.indexOf('Prática 1.1.1') !== -1 && html.indexOf('Projeto MUDA 2026/1') !== -1);
+
+  /* -------------------------------------------------------------------------
+     Fase 2 — Documentos/anexos no empreendimento + índice no backup
+
+     Empreendimentos antigos (sem a lista `documentos`) abrem com a seção
+     vazia. No modo local, só link; no modo nuvem, campo de arquivo. O backup
+     ganha um índice dos anexos para rastreabilidade.
+  ------------------------------------------------------------------------- */
+
+  console.log('\n21) Anexos de documentos no empreendimento (Fase 2)');
+
+  Store.carregarExemplo();
+  const empAnexo = Store.estado().empreendimentos[0];
+
+  html = renderizarRota('#/empreendimento/' + empAnexo.id);
+  verificar('o detalhe tem a seção de documentos',
+    html.indexOf('Documentos e anexos') !== -1, html.slice(0, 220));
+  verificar('empreendimento sem documentos mostra lista vazia',
+    html.indexOf('Nenhum documento anexado') !== -1);
+  verificar('modo local oferece o formulário de documento sem campo de arquivo',
+    html.indexOf('id="form-documento-emp"') !== -1 && html.indexOf('type="file"') === -1);
+
+  // Grava um documento por link (modo local) e confere que aparece.
+  Store.atualizarEm('empreendimentos', empAnexo.id, {
+    documentos: [{
+      id: Store.novoId(), titulo: 'Pitch de seleção',
+      link: 'https://exemplo.org/pitch.pdf', descricao: 'Apresentação',
+      data_referencia: '2026-02-01', criado_em: '2026-02-01T00:00:00.000Z'
+    }]
+  });
+  html = renderizarRota('#/empreendimento/' + empAnexo.id);
+  verificar('o documento anexado aparece', html.indexOf('Pitch de seleção') !== -1);
+  verificar('o documento por link tem "abrir link"', html.indexOf('abrir link') !== -1);
+
+  // Backup inclui o índice de anexos (empreendimento -> títulos/URLs).
+  const backup = Store.exportarObjeto();
+  verificar('o backup inclui índice de anexos',
+    !!backup.anexos_indice && Array.isArray(backup.anexos_indice.empreendimentos));
+  verificar('o índice lista o documento do empreendimento',
+    JSON.stringify(backup.anexos_indice).indexOf('Pitch de seleção') !== -1);
+
+  // Modo nuvem simulado: com enviarArquivo publicado, aparece o campo de arquivo.
+  Store.enviarArquivoEmpreendimento = function () {
+    return Promise.resolve({ url: '', nome: '', path: '', tamanho: 0, tipo: '' });
+  };
+  Store.enviarArquivo = function () { return Promise.resolve({}); };
+  Store.conferirArquivo = function () { return null; };
+  Store.EXTENSOES_ACEITAS = ['.pdf', '.jpg'];
+  html = renderizarRota('#/empreendimento/' + empAnexo.id);
+  verificar('modo nuvem mostra campo de arquivo no documento',
+    html.indexOf('type="file"') !== -1);
+  delete Store.enviarArquivoEmpreendimento;
+  delete Store.enviarArquivo;
+  delete Store.conferirArquivo;
+  delete Store.EXTENSOES_ACEITAS;
+
   console.log('\n' + (falhas === 0 ? 'TODOS OS TESTES PASSARAM' : falhas + ' TESTE(S) FALHARAM'));
   process.exit(falhas === 0 ? 0 : 1);
 })();

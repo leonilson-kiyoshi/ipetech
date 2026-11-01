@@ -503,11 +503,24 @@ function salvarStatus(codigo, dados) {
 }
 
 function criarEm(lista, registro) {
-  const completo = Object.assign({}, registro, {
+  // Códigos de leitura humana, gerados por melhor esforço a partir do espelho
+  // em memória (regra única em regras.js). Na nuvem, duas criações simultâneas
+  // podem colidir; o campo é editável para corrigir, e nenhum cálculo depende
+  // dele. Um valor já presente no registro é respeitado.
+  const extra = {
     criado_em: serverTimestamp(),
     criado_por: usuario ? usuario.uid : null,
     criado_por_nome: usuario ? (usuario.displayName || usuario.email) : ''
-  });
+  };
+  if (lista === 'empreendimentos' && !registro.codigo) {
+    extra.codigo = Regras.proximoCodigoEmpreendimento(estado.empreendimentos);
+  }
+  if (lista === 'evidencias' && !registro.protocolo) {
+    extra.protocolo = Regras.proximoProtocoloEvidencia(
+      estado.evidencias, registro.data_referencia
+    );
+  }
+  const completo = Object.assign({}, registro, extra);
   addDoc(collection(db, lista), completo)
     .catch((e) => tratarErro('registrar em ' + lista, e));
   return completo;

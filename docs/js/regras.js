@@ -59,15 +59,18 @@
   ];
 
   // Vínculo do empreendimento com o parque:
-  //   apoiado   — está no programa de incubação;
-  //   residente — empresa instalada no parque fora da incubação: ocupa espaço,
-  //               usa a infraestrutura e participa do ecossistema;
-  //   graduado  — concluiu a incubação (pode seguir no parque como residente);
-  //   desligado — saiu sem concluir.
+  //   apoiado      — está no programa de incubação;
+  //   pre_incubado — participa de um programa de pré-incubação (ex.: Projeto
+  //                  MUDA), mas ainda não ingressou formalmente na incubadora;
+  //   residente    — empresa instalada no parque fora da incubação: ocupa
+  //                  espaço, usa a infraestrutura e participa do ecossistema;
+  //   graduado     — concluiu a incubação (pode seguir no parque como residente);
+  //   desligado    — saiu sem concluir.
   // A ordem desta lista é a ordem dos menus, e o primeiro item é o padrão dos
   // formulários — por isso "apoiado" continua na frente.
   var SITUACOES_EMPREENDIMENTO = [
     { valor: 'apoiado', rotulo: 'Apoiado (incubado)' },
+    { valor: 'pre_incubado', rotulo: 'Pré-incubado' },
     { valor: 'residente', rotulo: 'Residente' },
     { valor: 'graduado', rotulo: 'Graduado' },
     { valor: 'desligado', rotulo: 'Desligado' }
@@ -353,6 +356,9 @@
       revisoes: (estado.revisoes || []).length,
       planos_abertos: planosAbertos,
       empreendimentos: (estado.empreendimentos || []).length,
+      pre_incubados: (estado.empreendimentos || []).filter(function (e) {
+        return e.situacao === 'pre_incubado';
+      }).length,
       incubados: (estado.empreendimentos || []).filter(function (e) {
         return e.situacao === 'apoiado';
       }).length,
@@ -363,6 +369,53 @@
         return e.situacao === 'graduado';
       }).length
     };
+  }
+
+  /* ===================================================== geração de códigos
+
+     Código do empreendimento (IPE-0001) e protocolo da evidência
+     (INB-AAAA-000) são gerados por MELHOR ESFORÇO: pega o maior sequencial
+     que já existe e soma 1. Ficam aqui, em regras.js, para os dois modos de
+     armazenamento (store.js e nuvem.js) usarem exatamente a mesma geração.
+
+     "Melhor esforço" porque, na nuvem, duas pessoas criando ao mesmo tempo
+     podem gerar o mesmo número. Por isso os dois campos são editáveis, para
+     corrigir esse caso raro. Nenhum cálculo de prontidão depende deles — são
+     identificadores de leitura humana, para localizar registros.
+
+     Registros antigos (sem codigo/protocolo) simplesmente não entram na conta
+     e seguem válidos; as telas mostram "—" para eles.
+     ====================================================================== */
+
+  /** Ano (AAAA) de uma data ISO; cai no ano atual quando a data é vazia. */
+  function anoDe(dataReferencia) {
+    var ano = String(dataReferencia || '').slice(0, 4);
+    return /^\d{4}$/.test(ano) ? ano : String(new Date().getFullYear());
+  }
+
+  function proximoCodigoEmpreendimento(empreendimentos) {
+    var maior = 0;
+    (empreendimentos || []).forEach(function (e) {
+      var m = /^IPE-(\d+)$/i.exec(String((e && e.codigo) || '').trim());
+      if (m) {
+        var n = parseInt(m[1], 10);
+        if (n > maior) maior = n;
+      }
+    });
+    return 'IPE-' + String(maior + 1).padStart(4, '0');
+  }
+
+  function proximoProtocoloEvidencia(evidencias, dataReferencia) {
+    var ano = anoDe(dataReferencia);
+    var maior = 0;
+    (evidencias || []).forEach(function (e) {
+      var m = /^INB-(\d{4})-(\d+)$/i.exec(String((e && e.protocolo) || '').trim());
+      if (m && m[1] === ano) {
+        var n = parseInt(m[2], 10);
+        if (n > maior) maior = n;
+      }
+    });
+    return 'INB-' + ano + '-' + String(maior + 1).padStart(3, '0');
   }
 
   /* ------------------------------------------------------------------- API */
@@ -390,6 +443,10 @@
     faltasDaPratica: faltasDaPratica,
     praticaCompleta: praticaCompleta,
     calcularProntidao: calcularProntidao,
-    resumo: resumo
+    resumo: resumo,
+
+    anoDe: anoDe,
+    proximoCodigoEmpreendimento: proximoCodigoEmpreendimento,
+    proximoProtocoloEvidencia: proximoProtocoloEvidencia
   };
 })(window);

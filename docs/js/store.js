@@ -95,6 +95,16 @@
   function criarEm(lista, registro) {
     registro.id = novoId();
     registro.criado_em = new Date().toISOString();
+    // Códigos de leitura humana, gerados por melhor esforço (regra única em
+    // regras.js). Se já vier um valor (ex.: importação), ele é respeitado.
+    if (lista === 'empreendimentos' && !registro.codigo) {
+      registro.codigo = Regras.proximoCodigoEmpreendimento(estado.empreendimentos);
+    }
+    if (lista === 'evidencias' && !registro.protocolo) {
+      registro.protocolo = Regras.proximoProtocoloEvidencia(
+        estado.evidencias, registro.data_referencia
+      );
+    }
     estado[lista].push(registro);
     salvar();
     return registro;

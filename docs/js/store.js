@@ -77,18 +77,27 @@
   function salvarStatus(codigo, dados) {
     if (!Regras.buscarPratica(codigo)) return;
     var atual = statusDe(codigo);
+    var continua =
+      dados.continua !== undefined ? !!dados.continua : !!atual.continua;
+    var percentual =
+      dados.percentual !== undefined
+        ? Math.max(0, Math.min(100, Number(dados.percentual) || 0))
+        : atual.percentual;
+    // Prática contínua não usa percentual: o campo fica escondido na interface
+    // e o dado gravado recebe 100. Assim a regra de prontidão (inalterada) e as
+    // regras do Firestore (que exigem percentual 0..100) seguem válidas.
+    if (continua) percentual = 100;
     estado.praticas[codigo] = {
       situacao: dados.situacao !== undefined ? dados.situacao : atual.situacao,
-      percentual:
-        dados.percentual !== undefined
-          ? Math.max(0, Math.min(100, Number(dados.percentual) || 0))
-          : atual.percentual,
+      percentual: percentual,
       observacoes:
         dados.observacoes !== undefined ? dados.observacoes : atual.observacoes,
       responsavel_pendencia:
         dados.responsavel_pendencia !== undefined
           ? dados.responsavel_pendencia
           : (atual.responsavel_pendencia || ''),
+      // Marcador aditivo de "prática contínua": só apresentação + conveniência.
+      continua: continua,
       atualizado_em: new Date().toISOString()
     };
     salvar();
@@ -410,6 +419,7 @@
     catalogo: Regras.catalogo,
     praticas: Regras.praticas,
     buscarPratica: Regras.buscarPratica,
+    PRATICAS_CONTINUAS_SUGERIDAS: Regras.PRATICAS_CONTINUAS_SUGERIDAS,
     SITUACOES: Regras.SITUACOES,
     ESTAGIOS: Regras.ESTAGIOS,
     SITUACOES_EMPREENDIMENTO: Regras.SITUACOES_EMPREENDIMENTO,

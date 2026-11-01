@@ -38,6 +38,20 @@
     INDICE[item.pratica.codigo] = item;
   });
 
+  /* ------------------------------------------- dica: práticas contínuas
+
+     Algumas práticas-chave do CERNE são CONTÍNUAS por natureza: operam o
+     tempo todo (sensibilização, monitoramento, comunicação), em vez de
+     "ficarem prontas". Para elas, pedir percentual de implantação não faz
+     sentido — ficam Implantada e em operação sistemática.
+
+     Esta lista é apenas uma DICA VISUAL na tela da prática (sugere marcar o
+     campo `continua`). Não é obrigatória, não muda a regra de prontidão e não
+     altera nenhum dado salvo: uma prática só continua contando quando está
+     'implantada', com as evidências e métricas obrigatórias atendidas. */
+  var PRATICAS_CONTINUAS_SUGERIDAS =
+    ['1.1.1', '1.1.2', '1.3.2', '1.3.3', '1.4.2', '1.5.2', '1.5.3'];
+
   /* ------------------------------------------------------------------ rótulos */
 
   var SITUACOES = [
@@ -166,6 +180,10 @@
           // Campo aditivo da Fase 2: responsável por complementar as
           // pendências. Preservado no backup; não entra na regra de prontidão.
           responsavel_pendencia: st.responsavel_pendencia || '',
+          // Marcador de "prática contínua": só apresentação + conveniência.
+          // Dados antigos (sem o campo) viram false e funcionam normalmente.
+          // Não entra na regra de prontidão.
+          continua: !!st.continua,
           atualizado_em: st.atualizado_em || null
         };
       });
@@ -189,6 +207,7 @@
         percentual: 0,
         observacoes: '',
         responsavel_pendencia: '',
+        continua: false,
         atualizado_em: null
       }
     );
@@ -491,6 +510,7 @@
     catalogo: catalogo,
     praticas: PRATICAS,
     buscarPratica: function (codigo) { return INDICE[codigo] || null; },
+    PRATICAS_CONTINUAS_SUGERIDAS: PRATICAS_CONTINUAS_SUGERIDAS,
 
     SITUACOES: SITUACOES,
     ESTAGIOS: ESTAGIOS,

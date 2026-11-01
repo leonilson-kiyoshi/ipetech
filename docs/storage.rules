@@ -98,6 +98,18 @@ service firebase.storage {
       allow delete: if podeRegistrar();
     }
 
+    // ------------------------------------------------- anexos de empreendimento
+    // Caminho: empreendimentos/IPE-0001/2026/pitch-de-selecao.pdf
+    // Documentos do próprio empreendimento (inscrições, pitches, avaliações,
+    // entregas). Fase 2. Usa as MESMAS validações de tamanho e tipo das
+    // evidências, para o mesmo nível de segurança.
+
+    match /empreendimentos/{id}/{ano}/{arquivo} {
+      allow read: if autorizado();
+      allow create, update: if podeRegistrar() && tamanhoAceito() && tipoAceito();
+      allow delete: if podeRegistrar();
+    }
+
     // ------------------------------------------------------------- o resto
     // Caminho não previsto acima não é acessível, de propósito.
 

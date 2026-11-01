@@ -197,6 +197,32 @@ service cloud.firestore {
       }
     }
 
+    // ----------------------------------------------------------- atividades
+    // Eventos, reuniões, capacitações e outras ações do parque (Fase 2).
+    // Reaproveita as mesmas funções de apoio das coleções acima.
+
+    match /atividades/{id} {
+      allow read: if autorizado();
+      allow create: if podeRegistrar() && autoriaPropria()
+        && request.resource.data.titulo is string
+        && request.resource.data.titulo.size() > 0
+        && request.resource.data.tipo in
+             ['evento', 'reuniao', 'capacitacao', 'outra'];
+      allow update, delete: if podeRegistrar();
+    }
+
+    // ------------------------------------------------------------- historico
+    // Trilha append-only de alterações (Fase 2): quem mudou o quê e quando.
+    // Grava-se, mas não se edita nem se apaga — é o que dá valor de auditoria.
+    // A autoria gravada precisa ser a de quem está enviando.
+
+    match /historico/{id} {
+      allow read: if autorizado();
+      allow create: if podeRegistrar()
+        && request.resource.data.quem == request.auth.uid;
+      allow update, delete: if false;
+    }
+
     // ------------------------------------------------------------- o resto
     // Nada mais é acessível. Coleção nova só funciona depois de ser
     // liberada aqui, de propósito: o padrão é negar.

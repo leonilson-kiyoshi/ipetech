@@ -85,6 +85,10 @@
           : atual.percentual,
       observacoes:
         dados.observacoes !== undefined ? dados.observacoes : atual.observacoes,
+      responsavel_pendencia:
+        dados.responsavel_pendencia !== undefined
+          ? dados.responsavel_pendencia
+          : (atual.responsavel_pendencia || ''),
       atualizado_em: new Date().toISOString()
     };
     salvar();
@@ -103,6 +107,11 @@
     if (lista === 'evidencias' && !registro.protocolo) {
       registro.protocolo = Regras.proximoProtocoloEvidencia(
         estado.evidencias, registro.data_referencia
+      );
+    }
+    if (lista === 'atividades' && !registro.protocolo) {
+      registro.protocolo = Regras.proximoProtocoloAtividade(
+        estado.atividades, registro.data_realizacao
       );
     }
     estado[lista].push(registro);
@@ -135,7 +144,12 @@
   /* --------------------------------------------------------- backup / restore */
 
   function exportarObjeto() {
-    return JSON.parse(JSON.stringify(estado));
+    var obj = JSON.parse(JSON.stringify(estado));
+    // Índice dos anexos (empreendimento -> títulos/URLs), para rastreabilidade.
+    // Os arquivos em si ficam no Storage; aqui vai só o mapa. Aditivo: a
+    // importação ignora esta chave, então backups antigos seguem válidos.
+    obj.anexos_indice = Regras.indiceDeAnexos(estado);
+    return obj;
   }
 
   function nomeArquivoBackup() {
@@ -402,6 +416,7 @@
     SITUACOES_PLANO: Regras.SITUACOES_PLANO,
     EIXOS: Regras.EIXOS,
     PAPEIS: Regras.PAPEIS,
+    TIPOS_ATIVIDADE: Regras.TIPOS_ATIVIDADE,
     rotuloDe: Regras.rotuloDe,
 
     // ciclo de vida

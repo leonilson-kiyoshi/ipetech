@@ -102,6 +102,12 @@ const CONFIG = window.FIREBASE_CONFIG;
    o nome da coleção no Firestore — mantidos iguais de propósito. */
 const COLECOES = ['evidencias', 'medicoes', 'revisoes', 'planos', 'empreendimentos'];
 
+/* Coleções novas da Fase 2. Ficam à parte porque são OPCIONAIS: enquanto as
+   regras novas não forem publicadas no console, a leitura é NEGADA, e isso não
+   pode derrubar as telas antigas. O erro de permissão é engolido e a coleção
+   segue vazia (degradação graciosa). */
+const COLECOES_NOVAS = ['atividades', 'historico'];
+
 /* ----------------------------------------------------------------- estado */
 
 let estado = Regras.estadoInicial();
@@ -207,17 +213,33 @@ function caminhoDoAnexo(codigoPratica, dataReferencia, nomeArquivo) {
   );
 }
 
-/** Envia o arquivo e devolve os dados para guardar junto da evidência.
- *  `aoProgresso` recebe o percentual (0 a 100), para a tela dar sinal de vida. */
-async function enviarArquivo(codigoPratica, dataReferencia, arquivo, aoProgresso) {
+/** Caminho do anexo de um documento do empreendimento (Fase 2).
+ *
+ *      empreendimentos/IPE-abc123/2026/pitch-de-selecao.pdf
+ *
+ *  Estrutura espelhada nas regras do Storage (empreendimentos/{id}/{ano}/
+ *  {arquivo}), com as mesmas validações de tamanho e tipo das evidências. */
+function caminhoDoDocumentoEmpreendimento(idEmpreendimento, dataReferencia, nomeArquivo) {
+  const ano = String(dataReferencia || '').slice(0, 4) ||
+    String(new Date().getFullYear());
+  const marca = Date.now().toString(36);
+  return (
+    'empreendimentos/' + idEmpreendimento + '/' + ano + '/' +
+    marca + '-' + nomeSeguro(nomeArquivo)
+  );
+}
+
+/** Núcleo do envio: sobe o arquivo para um caminho do bucket e devolve os
+ *  dados do anexo. Compartilhado pelos dois destinos (evidências e documentos
+ *  de empreendimento) para a lógica de progresso e de travamento ser uma só. */
+async function enviarParaCaminho(caminho, arquivo, aoProgresso, metadados) {
   const problema = conferirArquivo(arquivo);
   if (problema) throw new Error(problema);
 
-  const caminho = caminhoDoAnexo(codigoPratica, dataReferencia, arquivo.name);
   const alvo = refArmazenamento(armazenamento, caminho);
   const tarefa = uploadBytesResumable(alvo, arquivo, {
     contentType: arquivo.type || 'application/octet-stream',
-    customMetadata: { pratica: codigoPratica }
+    customMetadata: metadados || {}
   });
 
   // Vigia de travamento.
@@ -273,6 +295,29 @@ async function enviarArquivo(codigoPratica, dataReferencia, arquivo, aoProgresso
     nome: arquivo.name,
     tamanho: arquivo.size,
     tipo: arquivo.type || ''
+  };
+}
+
+/** Envia o arquivo de uma EVIDÊNCIA e devolve os dados para guardar junto dela.
+ *  `aoProgresso` recebe o percentual (0 a 100), para a tela dar sinal de vida. */
+async function enviarArquivo(codigoPratica, dataReferencia, arquivo, aoProgresso) {
+  const caminho = caminhoDoAnexo(codigoPratica, dataReferencia, arquivo.name);
+  return enviarParaCaminho(caminho, arquivo, aoProgresso, { pratica: codigoPratica });
+}
+
+/** Envia o arquivo de um DOCUMENTO de empreendimento (Fase 2) e devolve os
+ *  dados do anexo no formato {url, nome, path, tamanho, tipo}. */
+async function enviarArquivoEmpreendimento(idEmpreendimento, dataReferencia, arquivo, aoProgresso) {
+  const caminho = caminhoDoDocumentoEmpreendimento(idEmpreendimento, dataReferencia, arquivo.name);
+  const anexo = await enviarParaCaminho(
+    caminho, arquivo, aoProgresso, { empreendimento: idEmpreendimento }
+  );
+  return {
+    url: anexo.url,
+    nome: anexo.nome,
+    path: anexo.caminho,
+    tamanho: anexo.tamanho,
+    tipo: anexo.tipo
   };
 }
 
@@ -469,6 +514,31 @@ function assinarDados() {
         )
       );
     });
+
+    // coleções novas (Fase 2): NÃO entram na contagem do carregamento inicial
+    // e o erro de permissão é silenciado. Assim, se as regras novas ainda não
+    // foram publicadas, as telas antigas continuam funcionando normalmente.
+    COLECOES_NOVAS.forEach((nome) => {
+      desinscrever.push(
+        onSnapshot(
+          collection(db, nome),
+          (instantaneo) => {
+            estado[nome] = instantaneo.docs.map(daDoc);
+            redesenhar();
+          },
+          (erro) => {
+            if (String(erro && erro.code) === 'permission-denied') {
+              console.warn(
+                'Coleção "' + nome + '" ainda sem permissão. Publique as ' +
+                'regras novas do Firestore para habilitá-la.'
+              );
+            } else {
+              console.warn('Não foi possível ler ' + nome + ':', erro);
+            }
+          }
+        )
+      );
+    });
   });
 }
 
@@ -494,6 +564,12 @@ function salvarStatus(codigo, dados) {
         : atual.percentual,
     observacoes:
       dados.observacoes !== undefined ? dados.observacoes : atual.observacoes,
+    // Campo aditivo da Fase 2. Vai junto da situação da prática; o bloco de
+    // regras existente de /praticas permite campos extras, então não muda.
+    responsavel_pendencia:
+      dados.responsavel_pendencia !== undefined
+        ? dados.responsavel_pendencia
+        : (atual.responsavel_pendencia || ''),
     atualizado_em: serverTimestamp(),
     atualizado_por: usuario ? usuario.uid : null,
     atualizado_por_nome: usuario ? (usuario.displayName || usuario.email) : ''
@@ -520,30 +596,83 @@ function criarEm(lista, registro) {
       estado.evidencias, registro.data_referencia
     );
   }
+  if (lista === 'atividades' && !registro.protocolo) {
+    extra.protocolo = Regras.proximoProtocoloAtividade(
+      estado.atividades, registro.data_realizacao
+    );
+  }
   const completo = Object.assign({}, registro, extra);
   addDoc(collection(db, lista), completo)
+    .then((ref) => registrarHistorico(lista, ref.id, 'criar', resumoHistorico(lista, completo)))
     .catch((e) => tratarErro('registrar em ' + lista, e));
   return completo;
 }
 
 function atualizarEm(lista, id, dados) {
+  const alvo = (estado[lista] || []).filter((r) => r.id === id)[0];
   updateDoc(doc(db, lista, id), dados)
+    .then(() => registrarHistorico(lista, id, 'editar', resumoHistorico(lista, alvo || dados)))
     .catch((e) => tratarErro('atualizar ' + lista, e));
   return dados;
 }
 
 function removerEm(lista, id) {
+  const alvo = (estado[lista] || []).filter((r) => r.id === id)[0];
   // Ao remover uma evidência, o arquivo anexado também sai do bucket.
   // Sem isso o parque continuaria pagando armazenamento de arquivo órfão,
   // que ninguém mais alcança pelo sistema.
-  if (lista === 'evidencias') {
-    const alvo = estado.evidencias.filter((e) => e.id === id)[0];
-    if (alvo && alvo.arquivo && alvo.arquivo.caminho) {
-      removerArquivo(alvo.arquivo.caminho);
-    }
+  if (lista === 'evidencias' && alvo && alvo.arquivo && alvo.arquivo.caminho) {
+    removerArquivo(alvo.arquivo.caminho);
   }
   deleteDoc(doc(db, lista, id))
+    .then(() => registrarHistorico(lista, id, 'remover', resumoHistorico(lista, alvo)))
     .catch((e) => tratarErro('remover de ' + lista, e));
+}
+
+/* --------------------------------------------------------------- histórico
+
+   Trilha append-only das alterações de acompanhamento (Fase 2). Gravada de
+   forma central aqui, a cada criar/editar/remover, para que uma tela só de
+   leitura possa mostrar quem mudou o quê e quando.
+
+   É sempre MELHOR ESFORÇO: se as regras do /historico ainda não foram
+   publicadas, a gravação é negada — e isso NÃO pode interromper o fluxo
+   principal, porque o registro de acompanhamento em si já foi salvo. */
+
+const ROTULO_COLECAO = {
+  evidencias: 'Evidência', medicoes: 'Medição', revisoes: 'Revisão crítica',
+  planos: 'Plano de ação', empreendimentos: 'Empreendimento', atividades: 'Atividade'
+};
+
+/** Texto curto que descreve o registro, para a linha do histórico. */
+function resumoHistorico(lista, registro) {
+  const rotulo = ROTULO_COLECAO[lista] || lista;
+  const titulo = registro &&
+    (registro.titulo || registro.nome || registro.descricao || '');
+  const protocolo = registro && (registro.protocolo || registro.codigo || '');
+  return (
+    rotulo +
+    (titulo ? ' — ' + String(titulo).slice(0, 80) : '') +
+    (protocolo ? ' (' + protocolo + ')' : '')
+  );
+}
+
+function registrarHistorico(colecao, registroId, acao, resumo) {
+  if (!usuario) return;
+  addDoc(collection(db, 'historico'), {
+    colecao: colecao,
+    registro_id: registroId || '',
+    acao: acao,
+    resumo: resumo || '',
+    quando: serverTimestamp(),
+    quem: usuario.uid,
+    quem_nome: usuario.displayName || usuario.email || ''
+  }).catch((e) => {
+    console.warn(
+      'Não foi possível registrar no histórico (as regras do /historico ' +
+      'já foram publicadas?).', e
+    );
+  });
 }
 
 /* ------------------------------------------------- pessoas com acesso */
@@ -719,6 +848,7 @@ function publicarStore() {
     SITUACOES_PLANO: Regras.SITUACOES_PLANO,
     EIXOS: Regras.EIXOS,
     PAPEIS: Regras.PAPEIS,
+    TIPOS_ATIVIDADE: Regras.TIPOS_ATIVIDADE,
     rotuloDe: Regras.rotuloDe,
 
     // ciclo de vida
@@ -766,7 +896,11 @@ function publicarStore() {
     // backup: exportar continua valendo; importar em massa não é oferecido na
     // nuvem de propósito, para não sobrescrever o trabalho de outra pessoa.
     baixarBackup: baixarBackup,
-    exportarObjeto: function () { return JSON.parse(JSON.stringify(estado)); },
+    exportarObjeto: function () {
+      const obj = JSON.parse(JSON.stringify(estado));
+      obj.anexos_indice = Regras.indiceDeAnexos(estado);
+      return obj;
+    },
     importarObjeto: null,
     limpar: null,
     carregarExemplo: null,
@@ -784,6 +918,7 @@ function publicarStore() {
     // anexos (só existem no modo nuvem; no modo local estas funções não
     // são publicadas, e a interface esconde o campo de arquivo)
     enviarArquivo: enviarArquivo,
+    enviarArquivoEmpreendimento: enviarArquivoEmpreendimento,
     removerArquivo: removerArquivo,
     conferirArquivo: conferirArquivo,
     EXTENSOES_ACEITAS: EXTENSOES_ACEITAS,
@@ -804,7 +939,11 @@ function publicarStore() {
 }
 
 function baixarBackup() {
-  const conteudo = JSON.stringify(estado, null, 2);
+  const obj = JSON.parse(JSON.stringify(estado));
+  // Índice dos anexos (empreendimento -> títulos/URLs). Os arquivos ficam no
+  // Storage; o backup leva só o mapa, para rastreabilidade.
+  obj.anexos_indice = Regras.indiceDeAnexos(estado);
+  const conteudo = JSON.stringify(obj, null, 2);
   const blob = new Blob([conteudo], { type: 'application/json;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

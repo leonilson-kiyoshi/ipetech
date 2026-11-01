@@ -97,6 +97,15 @@
     { valor: 'consulta', rotulo: 'Consulta (somente leitura)' }
   ];
 
+  // Tipos de atividade do parque (eventos, reuniões, capacitações e demais
+  // ações). A ordem é a dos menus; o primeiro item é o padrão do formulário.
+  var TIPOS_ATIVIDADE = [
+    { valor: 'evento', rotulo: 'Evento' },
+    { valor: 'reuniao', rotulo: 'Reunião' },
+    { valor: 'capacitacao', rotulo: 'Capacitação' },
+    { valor: 'outra', rotulo: 'Outra ação' }
+  ];
+
   function rotuloDe(lista, valor) {
     for (var i = 0; i < lista.length; i++) {
       if (lista[i].valor === valor) return lista[i].rotulo;
@@ -123,6 +132,10 @@
       revisoes: [],
       planos: [],
       empreendimentos: [],
+      // Fase 2 — coleções novas, sempre aditivas: dados antigos (sem elas)
+      // continuam válidos; estas nascem vazias.
+      atividades: [],
+      historico: [],
       atualizado_em: null
     };
   }
@@ -150,11 +163,15 @@
           situacao: st.situacao || 'nao_iniciada',
           percentual: Number(st.percentual) || 0,
           observacoes: st.observacoes || '',
+          // Campo aditivo da Fase 2: responsável por complementar as
+          // pendências. Preservado no backup; não entra na regra de prontidão.
+          responsavel_pendencia: st.responsavel_pendencia || '',
           atualizado_em: st.atualizado_em || null
         };
       });
     }
-    ['evidencias', 'medicoes', 'revisoes', 'planos', 'empreendimentos'].forEach(
+    ['evidencias', 'medicoes', 'revisoes', 'planos', 'empreendimentos',
+     'atividades', 'historico'].forEach(
       function (lista) {
         if (Array.isArray(bruto[lista])) base[lista] = bruto[lista];
       }
@@ -171,6 +188,7 @@
         situacao: 'nao_iniciada',
         percentual: 0,
         observacoes: '',
+        responsavel_pendencia: '',
         atualizado_em: null
       }
     );
@@ -418,6 +436,55 @@
     return 'INB-' + ano + '-' + String(maior + 1).padStart(3, '0');
   }
 
+  /** Protocolo da atividade (ATV-AAAA-000), mesmo padrão de melhor esforço do
+   *  protocolo de evidência: maior sequencial do ano + 1. O AAAA vem da data
+   *  de realização. Fase 2. */
+  function proximoProtocoloAtividade(atividades, dataReferencia) {
+    var ano = anoDe(dataReferencia);
+    var maior = 0;
+    (atividades || []).forEach(function (a) {
+      var m = /^ATV-(\d{4})-(\d+)$/i.exec(String((a && a.protocolo) || '').trim());
+      if (m && m[1] === ano) {
+        var n = parseInt(m[2], 10);
+        if (n > maior) maior = n;
+      }
+    });
+    return 'ATV-' + ano + '-' + String(maior + 1).padStart(3, '0');
+  }
+
+  /* ===================================================== índice de anexos
+
+     Para o backup (Fase 2): os arquivos em si ficam no Firebase Storage, não
+     no .json. Este índice lista, por empreendimento, o título e a URL de cada
+     documento anexado, para rastreabilidade — restaurar o backup recria os
+     registros, não os arquivos. É puramente informativo e aditivo.
+     ====================================================================== */
+
+  function indiceDeAnexos(estado) {
+    var empreendimentos = (estado.empreendimentos || []).map(function (e) {
+      return {
+        empreendimento: e.nome || '',
+        codigo: e.codigo || '',
+        documentos: (e.documentos || []).map(function (d) {
+          return {
+            titulo: d.titulo || '',
+            url: (d.arquivo && d.arquivo.url) || d.link || '',
+            path: (d.arquivo && d.arquivo.path) || '',
+            data_referencia: d.data_referencia || ''
+          };
+        })
+      };
+    }).filter(function (e) { return e.documentos.length > 0; });
+
+    return {
+      observacao:
+        'Os arquivos em si ficam no Firebase Storage; este índice guarda ' +
+        'apenas título e URL de cada anexo, para rastreabilidade. Restaurar ' +
+        'este backup recria os registros, não os arquivos.',
+      empreendimentos: empreendimentos
+    };
+  }
+
   /* ------------------------------------------------------------------- API */
 
   global.Regras = {
@@ -431,6 +498,7 @@
     SITUACOES_PLANO: SITUACOES_PLANO,
     EIXOS: EIXOS,
     PAPEIS: PAPEIS,
+    TIPOS_ATIVIDADE: TIPOS_ATIVIDADE,
     rotuloDe: rotuloDe,
 
     estadoInicial: estadoInicial,
@@ -447,6 +515,8 @@
 
     anoDe: anoDe,
     proximoCodigoEmpreendimento: proximoCodigoEmpreendimento,
-    proximoProtocoloEvidencia: proximoProtocoloEvidencia
+    proximoProtocoloEvidencia: proximoProtocoloEvidencia,
+    proximoProtocoloAtividade: proximoProtocoloAtividade,
+    indiceDeAnexos: indiceDeAnexos
   };
 })(window);

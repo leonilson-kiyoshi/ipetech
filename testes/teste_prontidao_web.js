@@ -158,5 +158,57 @@ verificar('prática fora do catálogo é ignorada',
 verificar('campo inválido virou lista vazia', Array.isArray(Store.estado().evidencias));
 verificar('cálculo segue funcionando', p.total_praticas === 29);
 
+console.log('\n10) Marcador de prática contínua NÃO muda a regra de prontidão');
+Store.limpar();
+// Uma prática do nível 1 com métrica obrigatória (logo, exigente).
+const praticaCont = praticasN1.find((x) => x.metricas.some((m) => m.obrigatoria));
+// Só marcar contínua, sem mais nada, não completa nada.
+Store.salvarStatus(praticaCont.codigo, { continua: true });
+let stCont = Store.statusDe(praticaCont.codigo);
+verificar('marcar contínua grava o campo continua=true', stCont.continua === true);
+verificar('contínua força percentual 100 no dado gravado', stCont.percentual === 100,
+  'pct=' + stCont.percentual);
+verificar('contínua sem implantada/evidências/métricas NÃO conta',
+  Store.praticaCompleta(praticaCont) === false);
+// Contínua + implantada, mas ainda sem evidências/métricas => incompleta.
+Store.salvarStatus(praticaCont.codigo, { continua: true, situacao: 'implantada' });
+verificar('contínua implantada sem evidências/métricas continua incompleta',
+  Store.praticaCompleta(praticaCont) === false);
+// Agora atende evidências obrigatórias + métricas obrigatórias.
+praticaCont.requisitos.filter((r) => r.obrigatorio).forEach((req) => {
+  Store.criarEm('evidencias', {
+    pratica: praticaCont.codigo, requisito: req.id, titulo: 'ev', link: '',
+    descricao: '', data_referencia: '2026-01-10', responsavel: 'teste'
+  });
+});
+praticaCont.metricas.filter((m) => m.obrigatoria).forEach((met) => {
+  Store.criarEm('medicoes', {
+    pratica: praticaCont.codigo, metrica: met.id, valor: 10, data: '2026-01-10', observacao: ''
+  });
+});
+verificar('contínua SÓ fica completa com implantada + evidências + métricas',
+  Store.praticaCompleta(praticaCont) === true);
+// A regra não mudou: contínua fora de "implantada" volta a não contar.
+Store.salvarStatus(praticaCont.codigo, { continua: true, situacao: 'em_andamento' });
+verificar('contínua em "em_andamento" não conta (regra inalterada)',
+  Store.praticaCompleta(praticaCont) === false);
+
+console.log('\n11) O estado "continua" sobrevive a backup/normalizar');
+Store.limpar();
+Store.salvarStatus('1.1.1', { continua: true, situacao: 'implantada' });
+const copiaCont = JSON.parse(JSON.stringify(Store.exportarObjeto()));
+Store.limpar();
+verificar('após limpar, 1.1.1 deixa de ser contínua',
+  Store.statusDe('1.1.1').continua === false);
+Store.importarObjeto(copiaCont);
+verificar('backup restaura continua=true', Store.statusDe('1.1.1').continua === true);
+verificar('restaurado mantém percentual 100', Store.statusDe('1.1.1').percentual === 100);
+// Dado antigo (sem o campo) => continua=false, funcionando normalmente.
+Store.importarObjeto({ praticas: { '1.1.2': { situacao: 'implantada', percentual: 100 } } });
+verificar('dado antigo sem o campo vira continua=false',
+  Store.statusDe('1.1.2').continua === false);
+verificar('dado antigo preserva a situação salva',
+  Store.statusDe('1.1.2').situacao === 'implantada');
+
 console.log('\n' + (falhas === 0 ? 'TODOS OS TESTES PASSARAM' : falhas + ' TESTE(S) FALHARAM'));
 process.exit(falhas === 0 ? 0 : 1);

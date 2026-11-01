@@ -802,6 +802,52 @@ function esperarPromessas() {
   delete Store.conferirArquivo;
   delete Store.EXTENSOES_ACEITAS;
 
+  /* -------------------------------------------------------------------------
+     Marcador de prática contínua (melhoria)
+
+     Para práticas sempre em operação (sensibilização, monitoramento,
+     comunicação), pedir percentual não faz sentido. Marcar "contínua" esconde
+     o campo de percentual e mostra o selo "Em operação contínua". É só
+     apresentação + conveniência: a regra de prontidão não muda (isso é
+     coberto em teste_prontidao_web.js).
+  ------------------------------------------------------------------------- */
+
+  console.log('\n22) Marcador de prática contínua na tela');
+
+  Store.limpar();
+
+  // Estado comum (não contínua): o percentual aparece e o selo fica escondido.
+  html = renderizarRota('#/pratica/1.1.1');
+  verificar('prática comum mostra o campo de percentual',
+    html.indexOf('name="percentual"') !== -1 &&
+    html.indexOf('id="campo-percentual" hidden') === -1);
+  verificar('prática comum mantém o selo de contínua escondido',
+    html.indexOf('id="campo-selo-continua" hidden') !== -1);
+  verificar('tela oferece o checkbox de prática contínua',
+    html.indexOf('id="st-continua"') !== -1 && html.indexOf('name="continua"') !== -1);
+  verificar('prática sugerida mostra a dica de contínua com atalho',
+    html.indexOf('costuma ser contínua') !== -1 &&
+    html.indexOf('id="btn-marcar-continua"') !== -1);
+
+  // Marca como contínua (o store força percentual=100) e redesenha.
+  Store.salvarStatus('1.1.1', { continua: true, situacao: 'implantada' });
+  html = renderizarRota('#/pratica/1.1.1');
+  verificar('marcar contínua esconde o campo de percentual',
+    html.indexOf('id="campo-percentual" hidden') !== -1);
+  verificar('marcar contínua mostra o selo "Em operação contínua"',
+    html.indexOf('selo-continua') !== -1 &&
+    html.indexOf('Em operação contínua') !== -1 &&
+    html.indexOf('id="campo-selo-continua" hidden') === -1);
+  verificar('o checkbox de contínua fica marcado',
+    html.indexOf('id="st-continua" name="continua" checked') !== -1);
+  verificar('prática já contínua não repete a dica',
+    html.indexOf('id="btn-marcar-continua"') === -1);
+
+  // O selo também aparece no catálogo, onde a situação da prática é exibida.
+  html = renderizarRota('#/catalogo');
+  verificar('catálogo marca a prática contínua com o selo',
+    html.indexOf('selo-continua') !== -1 && html.indexOf('Em operação contínua') !== -1);
+
   console.log('\n' + (falhas === 0 ? 'TODOS OS TESTES PASSARAM' : falhas + ' TESTE(S) FALHARAM'));
   process.exit(falhas === 0 ? 0 : 1);
 })();

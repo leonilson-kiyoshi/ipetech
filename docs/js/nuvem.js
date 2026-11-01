@@ -556,12 +556,19 @@ function salvarMecanismo(dados) {
 function salvarStatus(codigo, dados) {
   if (!Regras.buscarPratica(codigo)) return;
   const atual = Regras.statusDe(estado, codigo);
+  const continua =
+    dados.continua !== undefined ? !!dados.continua : !!atual.continua;
+  // Prática contínua não usa percentual: o campo fica escondido na interface e
+  // o dado gravado recebe 100. Continuamos SEMPRE enviando percentual (0..100)
+  // e situacao válidos, como a regra JÁ PUBLICADA de /praticas exige.
+  let percentual =
+    dados.percentual !== undefined
+      ? Math.max(0, Math.min(100, Number(dados.percentual) || 0))
+      : atual.percentual;
+  if (continua) percentual = 100;
   const novo = {
     situacao: dados.situacao !== undefined ? dados.situacao : atual.situacao,
-    percentual:
-      dados.percentual !== undefined
-        ? Math.max(0, Math.min(100, Number(dados.percentual) || 0))
-        : atual.percentual,
+    percentual: percentual,
     observacoes:
       dados.observacoes !== undefined ? dados.observacoes : atual.observacoes,
     // Campo aditivo da Fase 2. Vai junto da situação da prática; o bloco de
@@ -570,6 +577,9 @@ function salvarStatus(codigo, dados) {
       dados.responsavel_pendencia !== undefined
         ? dados.responsavel_pendencia
         : (atual.responsavel_pendencia || ''),
+    // Marcador aditivo de "prática contínua" (booleano). Também um campo extra
+    // para as regras de /praticas, que só validam percentual/situacao/autoria.
+    continua: continua,
     atualizado_em: serverTimestamp(),
     atualizado_por: usuario ? usuario.uid : null,
     atualizado_por_nome: usuario ? (usuario.displayName || usuario.email) : ''
@@ -842,6 +852,7 @@ function publicarStore() {
     catalogo: Regras.catalogo,
     praticas: Regras.praticas,
     buscarPratica: Regras.buscarPratica,
+    PRATICAS_CONTINUAS_SUGERIDAS: Regras.PRATICAS_CONTINUAS_SUGERIDAS,
     SITUACOES: Regras.SITUACOES,
     ESTAGIOS: Regras.ESTAGIOS,
     SITUACOES_EMPREENDIMENTO: Regras.SITUACOES_EMPREENDIMENTO,

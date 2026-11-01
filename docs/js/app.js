@@ -347,11 +347,15 @@
         var faltas = item.faltas.map(function (f) {
           return '<li>' + esc(f) + '</li>';
         }).join('');
-        var resp = Store.statusDe(item.pratica.codigo).responsavel_pendencia;
+        var stItem = Store.statusDe(item.pratica.codigo);
+        var resp = stItem.responsavel_pendencia;
+        var seloCont = stItem.continua
+          ? ' <span class="etiqueta azul selo-continua">Em operação contínua</span>'
+          : '';
         return (
           '<div class="dossie-pratica">' +
           '<a class="negrito" href="#/pratica/' + encodeURIComponent(item.pratica.codigo) + '">' +
-          esc(item.pratica.codigo) + ' ' + esc(item.pratica.nome) + '</a>' +
+          esc(item.pratica.codigo) + ' ' + esc(item.pratica.nome) + '</a>' + seloCont +
           '<ul class="lista-faltas">' + faltas + '</ul>' +
           (resp
             ? '<p class="pequeno suave sem-margem">Responsável por complementar: <strong>' +
@@ -463,6 +467,10 @@
             : '<span class="etiqueta ' +
               (info.situacao === 'nao_iniciada' ? 'cinza' : 'amarela') + '">' +
               esc(info.situacao_rotulo) + '</span>';
+          // Prática contínua: selo no lugar do acompanhamento por percentual.
+          var seloCont = Store.statusDe(info.pratica.codigo).continua
+            ? '<span class="etiqueta azul selo-continua">Em operação contínua</span> '
+            : '';
           return (
             '<a class="item-pratica" href="#/pratica/' + encodeURIComponent(info.pratica.codigo) + '">' +
             '<span class="marcador ' + marca + '" aria-hidden="true">' + simbolo + '</span>' +
@@ -472,7 +480,7 @@
             '<span class="meta">' + info.n_evidencias + ' evidência(s)' +
             (info.pratica.metricas.length ? ' · ' + info.pratica.metricas.length + ' métrica(s)' : '') +
             '</span></span>' +
-            etiqueta + '</a>'
+            seloCont + etiqueta + '</a>'
           );
         }).join('');
 
@@ -593,6 +601,9 @@
     var faltas = Store.faltasDaPratica(pr);
     var completa = faltas.length === 0;
     var somenteLeitura = !Store.podeEditar();
+    // Dica (não obrigatória): esta prática costuma ser contínua?
+    var sugereContinua =
+      (Store.PRATICAS_CONTINUAS_SUGERIDAS || []).indexOf(codigo) !== -1;
 
     /* ---- requisitos de evidência ---- */
     var evidencias = Store.evidenciasDaPratica(codigo);
@@ -937,14 +948,44 @@
       (st.atualizado_em ? 'atualizado em ' + dataHoraBR(st.atualizado_em) : 'nunca preenchido') +
       '</span></div>' +
       '<form id="form-status">' +
+
+      // Dica curta: só aparece quando a prática costuma ser contínua e ainda
+      // não foi marcada. Não obriga nada — traz um atalho para marcar.
+      (sugereContinua && !st.continua && !somenteLeitura
+        ? '<div class="aviso info sem-margem" id="nota-continua-sugerida" ' +
+          'style="margin-bottom:.8rem">Esta prática costuma ser contínua ' +
+          '(sempre em operação). ' +
+          '<button type="button" class="botao secundario pequeno" ' +
+          'id="btn-marcar-continua">Marcar como contínua</button></div>'
+        : '') +
+
+      // Marcador de prática contínua (ex.: sensibilização, monitoramento,
+      // comunicação): fica Implantada e some o percentual.
+      '<div class="campo caixa-marcar">' +
+      '<input type="checkbox" id="st-continua" name="continua"' +
+      (st.continua ? ' checked' : '') + trava() + '>' +
+      '<label for="st-continua">Prática contínua (em operação contínua)' +
+      '<br><span class="ajuda">Sempre em operação, sem percentual de ' +
+      'implantação. Fica Implantada para contar na prontidão; marcar não ' +
+      'muda a regra de prontidão.</span></label></div>' +
+
       '<div class="linha-campos">' +
       '<div class="campo"><label for="st-situacao">Situação</label>' +
       '<select id="st-situacao" name="situacao"' + trava() + '>' +
       opcoes(Store.SITUACOES, st.situacao) + '</select></div>' +
-      '<div class="campo"><label for="st-percentual">Percentual de implantação</label>' +
+      // Percentual: escondido quando a prática é contínua. O dado gravado
+      // recebe 100 automaticamente (ver salvarStatus), então nada muda nas
+      // regras do Firestore nem na regra de prontidão.
+      '<div class="campo" id="campo-percentual"' + (st.continua ? ' hidden' : '') + '>' +
+      '<label for="st-percentual">Percentual de implantação</label>' +
       '<input type="number" id="st-percentual" name="percentual" min="0" max="100" value="' +
       st.percentual + '"' + trava() + '>' +
       '<span class="ajuda">0 a 100. Serve para acompanhar o andamento; não afeta o cálculo de prontidão.</span></div>' +
+      // No lugar do percentual, a prática contínua mostra um selo.
+      '<div class="campo" id="campo-selo-continua"' + (st.continua ? '' : ' hidden') + '>' +
+      '<label>Implantação</label><br>' +
+      '<span class="etiqueta azul selo-continua">Em operação contínua</span>' +
+      '<span class="ajuda">Prática contínua: sempre em operação, sem percentual.</span></div>' +
       '</div>' +
       '<div class="campo"><label for="st-obs">Observações</label>' +
       '<textarea id="st-obs" name="observacoes"' + trava() + '>' + esc(st.observacoes) + '</textarea></div>' +
@@ -1171,6 +1212,33 @@
         avisar('Situação salva.');
         renderizar();
       });
+    }
+
+    // Marcador de prática contínua: esconde/mostra o percentual na hora e, por
+    // conveniência, já deixa a situação em "Implantada" ao marcar. O gestor
+    // ainda pode trocar a situação; a gravação é só no botão "Salvar situação".
+    var chkContinua = doc.getElementById('st-continua');
+    if (chkContinua) {
+      var aplicarContinua = function (marcado) {
+        var campoPct = doc.getElementById('campo-percentual');
+        var campoSelo = doc.getElementById('campo-selo-continua');
+        if (campoPct) campoPct.hidden = marcado;
+        if (campoSelo) campoSelo.hidden = !marcado;
+        if (marcado) {
+          var selSit = doc.getElementById('st-situacao');
+          if (selSit) selSit.value = 'implantada';
+        }
+      };
+      chkContinua.addEventListener('change', function () {
+        aplicarContinua(chkContinua.checked);
+      });
+      var btnMarcar = doc.getElementById('btn-marcar-continua');
+      if (btnMarcar) {
+        btnMarcar.addEventListener('click', function () {
+          chkContinua.checked = true;
+          aplicarContinua(true);
+        });
+      }
     }
 
     // evidências vinculadas a um requisito do CERNE

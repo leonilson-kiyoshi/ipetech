@@ -848,6 +848,90 @@ function esperarPromessas() {
   verificar('catálogo marca a prática contínua com o selo',
     html.indexOf('selo-continua') !== -1 && html.indexOf('Em operação contínua') !== -1);
 
+  /* -------------------------------------------------------------------------
+     Vínculo EVIDÊNCIA ↔ ATIVIDADE (melhoria)
+
+     Uma evidência (foto, relatório, lista de presença) pode apontar para uma
+     atividade já cadastrada. O campo `atividade` é EXTRA e OPCIONAL: evidências
+     antigas sem ele seguem válidas, o vínculo aparece na linha da evidência e
+     na tela de Atividades, e NÃO toca na regra de prontidão.
+  ------------------------------------------------------------------------- */
+
+  console.log('\n23) Vínculo de evidência a atividade');
+
+  Store.limpar();
+
+  // (a) O formulário de evidência oferece o vínculo a atividade.
+  html = renderizarRota('#/pratica/1.1.1');
+  verificar('formulário de evidência oferece vincular a atividade',
+    html.indexOf('Vincular a atividade (opcional)') !== -1 &&
+    html.indexOf('name="atividade"') !== -1, html.slice(0, 220));
+
+  // Cadastra uma atividade e duas evidências: uma vinculada a ela e uma ANTIGA
+  // (sem o campo `atividade`), ambas no mesmo requisito obrigatório.
+  Store.criarEm('atividades', {
+    tipo: 'evento', titulo: 'Oficina de pitch', descricao: 'Treino de apresentação',
+    data_realizacao: '2026-05-20', local: 'Sala 2', responsavel: 'Equipe',
+    pratica: '1.1.1', empreendimento: '', programa: 'Projeto MUDA 2026/1'
+  });
+  const atvVinc = Store.estado().atividades[0];
+  const reqObrigAtv = Store.buscarPratica('1.1.1').pratica.requisitos
+    .filter((r) => r.obrigatorio)[0];
+
+  Store.criarEm('evidencias', {
+    pratica: '1.1.1', requisito: reqObrigAtv.id, titulo: 'Fotos da oficina',
+    data_referencia: '2026-05-20', atividade: atvVinc.id
+  });
+  Store.criarEm('evidencias', {
+    pratica: '1.1.1', requisito: reqObrigAtv.id, titulo: 'Relatório sem vínculo',
+    data_referencia: '2026-05-21' // (c) evidência antiga: sem o campo `atividade`
+  });
+
+  // (b) Na tela de Atividades a evidência vinculada aparece sob a atividade.
+  html = renderizarRota('#/atividades');
+  verificar('a tela de Atividades reúne documentos por atividade',
+    html.indexOf('Documentos por atividade') !== -1, html.slice(0, 220));
+  verificar('a evidência vinculada aparece sob a atividade',
+    html.indexOf('Fotos da oficina') !== -1);
+  verificar('mostra a contagem de documentos da atividade',
+    html.indexOf('1 documento</span>') !== -1, html.slice(0, 300));
+  verificar('evidência sem vínculo NÃO aparece sob a atividade',
+    html.indexOf('Relatório sem vínculo') === -1);
+
+  // O vínculo também aparece na linha da evidência, na tela da prática, e a
+  // evidência antiga (sem `atividade`) continua visível e funcionando.
+  html = renderizarRota('#/pratica/1.1.1');
+  verificar('a linha da evidência mostra "Atividade: <protocolo>"',
+    html.indexOf('Atividade: ' + atvVinc.protocolo) !== -1, html.slice(0, 300));
+  verificar('(c) evidência antiga sem atividade continua aparecendo',
+    html.indexOf('Relatório sem vínculo') !== -1);
+
+  // Atividade removida: o vínculo da evidência passa a dizer "atividade removida".
+  Store.removerEm('atividades', atvVinc.id);
+  html = renderizarRota('#/pratica/1.1.1');
+  verificar('evidência de atividade removida mostra "atividade removida"',
+    html.indexOf('atividade removida') !== -1);
+
+  // (d) O vínculo NÃO muda a prontidão: a mesma evidência conta igual, com ou
+  //     sem o campo `atividade` (faltasDaPratica ignora o campo).
+  Store.limpar();
+  const praticaVinc = Store.buscarPratica('1.1.1').pratica;
+  const reqVinc = praticaVinc.requisitos.filter((r) => r.obrigatorio)[0];
+  Store.criarEm('evidencias', {
+    pratica: '1.1.1', requisito: reqVinc.id, titulo: 'Sem vínculo',
+    data_referencia: '2026-01-01'
+  });
+  const faltasSemVinculo = _info('1.1.1').faltas.length;
+  Store.limpar();
+  Store.criarEm('evidencias', {
+    pratica: '1.1.1', requisito: reqVinc.id, titulo: 'Com vínculo',
+    data_referencia: '2026-01-01', atividade: 'id-qualquer'
+  });
+  const faltasComVinculo = _info('1.1.1').faltas.length;
+  verificar('(d) o campo atividade não altera a prontidão',
+    faltasComVinculo === faltasSemVinculo,
+    faltasSemVinculo + ' vs ' + faltasComVinculo);
+
   console.log('\n' + (falhas === 0 ? 'TODOS OS TESTES PASSARAM' : falhas + ' TESTE(S) FALHARAM'));
   process.exit(falhas === 0 ? 0 : 1);
 })();

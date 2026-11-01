@@ -1118,7 +1118,11 @@
       data_referencia: d.data_referencia || '',
       responsavel: (d.responsavel || '').trim(),
       empreendimento: (d.empreendimento || '').trim(),
-      programa: (d.programa || '').trim()
+      programa: (d.programa || '').trim(),
+      // Vínculo opcional a uma atividade já cadastrada (Fase 2). Campo extra e
+      // aditivo: evidências antigas sem ele seguem válidas, e a regra de
+      // prontidão o ignora.
+      atividade: (d.atividade || '').trim()
     };
     if (!requisito) {
       registro.refere_a = (d.refere_a || '').trim();
@@ -1499,9 +1503,9 @@
     return 'azul';   // apoiado (incubado)
   }
 
-  /** Vínculo opcional de uma evidência: a startup e/ou o programa a que ela se
-   *  refere. Devolve texto já escapado, pronto para a linha de meta. Registros
-   *  antigos (sem os campos) devolvem string vazia. */
+  /** Vínculo opcional de uma evidência: a startup, o programa e/ou a atividade
+   *  a que ela se refere. Devolve texto já escapado, pronto para a linha de
+   *  meta. Registros antigos (sem os campos) devolvem string vazia. */
   function vinculoEvidencia(e) {
     var partes = [];
     if (e && e.empreendimento) {
@@ -1509,6 +1513,15 @@
       partes.push('Startup: ' + (emp ? esc(emp.nome) : 'empreendimento removido'));
     }
     if (e && e.programa) partes.push('Programa: ' + esc(e.programa));
+    if (e && e.atividade) {
+      var atvs = (Store.estado().atividades) || [];
+      var atv = null;
+      for (var i = 0; i < atvs.length; i++) {
+        if (atvs[i].id === e.atividade) { atv = atvs[i]; break; }
+      }
+      partes.push('Atividade: ' +
+        (atv ? esc(atv.protocolo || atv.titulo) : 'atividade removida'));
+    }
     return partes.join(' · ');
   }
 
@@ -1521,14 +1534,21 @@
     return m ? m[1] : '';
   }
 
-  /** Linha de formulário para vincular a evidência a um empreendimento e/ou
-   *  programa. Os dois campos são opcionais; o dropdown lista as startups já
-   *  cadastradas. Usada nos dois formulários de evidência da tela da prática. */
+  /** Linha de formulário para vincular a evidência a um empreendimento, um
+   *  programa e/ou uma atividade. Todos os campos são opcionais; o dropdown de
+   *  empreendimento lista as startups já cadastradas e o de atividade lista as
+   *  atividades registradas (protocolo + título). Usada nos dois formulários de
+   *  evidência da tela da prática. */
   function camposVinculoForm() {
     var emps = (Store.estado().empreendimentos) || [];
     var opcoesEmp = '<option value="">— nenhum —</option>' + emps.map(function (e) {
       return '<option value="' + esc(e.id) + '">' + esc(e.nome) +
         (e.codigo ? ' (' + esc(e.codigo) + ')' : '') + '</option>';
+    }).join('');
+    var atvs = (Store.estado().atividades) || [];
+    var opcoesAtv = '<option value="">— nenhuma —</option>' + atvs.map(function (a) {
+      var rotulo = (a.protocolo ? a.protocolo + ' · ' : '') + (a.titulo || '(sem título)');
+      return '<option value="' + esc(a.id) + '">' + esc(rotulo) + '</option>';
     }).join('');
     return (
       '<div class="linha-campos">' +
@@ -1536,7 +1556,9 @@
       '<select name="empreendimento">' + opcoesEmp + '</select></div>' +
       '<div class="campo"><label>Programa (opcional)</label>' +
       '<input type="text" name="programa" placeholder="ex.: Projeto MUDA 2026/1"></div>' +
-      '</div>'
+      '</div>' +
+      '<div class="campo"><label>Vincular a atividade (opcional)</label>' +
+      '<select name="atividade">' + opcoesAtv + '</select></div>'
     );
   }
 
@@ -2023,6 +2045,59 @@
       '<button type="submit" class="botao">Registrar atividade</button>' +
       '</form></details>';
 
+    // Documentos por atividade: bloco aditivo, abaixo da tabela, que reúne as
+    // evidências vinculadas a cada atividade (e.atividade === a.id). Cada
+    // atividade vira um <details> expansível com a contagem no resumo. Só
+    // aparece quando há atividades; não altera a tabela nem os filtros.
+    var todasEvidencias = Store.estado().evidencias || [];
+    var blocoDocs = '';
+    if (lista.length) {
+      var itensDocs = filtradas.map(function (a) {
+        var evsAtv = todasEvidencias.filter(function (e) {
+          return e.atividade && e.atividade === a.id;
+        });
+        var cabecalho =
+          (a.protocolo ? '<span class="etiqueta azul">' + esc(a.protocolo) + '</span> ' : '') +
+          '<strong>' + esc(a.titulo) + '</strong>' +
+          ' <span class="etiqueta ' + (evsAtv.length ? 'verde' : 'cinza') + '">' +
+          evsAtv.length + ' documento' + (evsAtv.length === 1 ? '' : 's') + '</span>';
+        var corpo;
+        if (evsAtv.length) {
+          corpo = '<ul>' + evsAtv.map(function (e) {
+            var link = urlSegura(e.link);
+            var anexo = e.arquivo && e.arquivo.url ? e.arquivo : null;
+            return (
+              '<li>' +
+              (e.protocolo ? '<span class="etiqueta azul">' + esc(e.protocolo) + '</span> ' : '') +
+              '<strong>' + esc(e.titulo) + '</strong>' +
+              (anexo
+                ? ' · <a href="' + esc(urlSegura(anexo.url)) + '" target="_blank" ' +
+                  'rel="noopener noreferrer" class="quebra">baixar arquivo</a>'
+                : '') +
+              (link
+                ? ' · <a href="' + esc(link) + '" target="_blank" ' +
+                  'rel="noopener noreferrer" class="quebra">abrir link</a>'
+                : '') +
+              '<br><span class="pequeno suave">Prática ' + esc(e.pratica || '—') +
+              ' · ref. ' + dataBR(e.data_referencia) + '</span>' +
+              '</li>'
+            );
+          }).join('') + '</ul>';
+        } else {
+          corpo = '<p class="pequeno suave sem-margem">Nenhum documento vinculado a esta atividade.</p>';
+        }
+        return (
+          '<details class="bloco"' + (evsAtv.length ? ' open' : '') + '>' +
+          '<summary>' + cabecalho + '</summary>' + corpo + '</details>'
+        );
+      }).join('');
+      blocoDocs =
+        '<h2>Documentos por atividade</h2>' +
+        '<p class="suave">Evidências (fotos, relatórios, listas de presença) vinculadas a ' +
+        'cada atividade. Vincule uma evidência a uma atividade na tela da prática.</p>' +
+        '<div class="cartao">' + itensDocs + '</div>';
+    }
+
     return (
       '<h1>Atividades</h1>' +
       '<p class="suave">Eventos, reuniões, capacitações e outras ações do parque. Cada ' +
@@ -2050,7 +2125,9 @@
             ? 'Nenhuma atividade com esses filtros.'
             : 'Nenhuma atividade registrada ainda.') +
           '</div>') +
-      '</div>'
+      '</div>' +
+
+      blocoDocs
     );
   };
 

@@ -558,6 +558,19 @@
   /* ------------------------------------------------- detalhe de uma prática */
 
   var praticaAtual = null;
+  // Filtro de exibição das evidências na tela da prática. Afeta só o que é
+  // mostrado; a contagem e o cálculo de prontidão continuam sobre todos os
+  // registros. Começa vazio (mostra tudo) e é zerado ao trocar de prática.
+  var filtroEvidencias = { ano: '', tipo: '' };
+
+  /** A evidência passa pelo filtro atual da tela da prática?
+   *  `tipoDoItem` é 'requisito' (vinculada a um requisito do CERNE) ou
+   *  'propria' (material próprio do parque). */
+  function passaFiltroEvid(e, tipoDoItem) {
+    if (filtroEvidencias.tipo && filtroEvidencias.tipo !== tipoDoItem) return false;
+    if (filtroEvidencias.ano && anoDaEvidencia(e) !== filtroEvidencias.ano) return false;
+    return true;
+  }
 
   Telas.pratica = function (codigo) {
     var item = Store.buscarPratica(codigo);
@@ -565,6 +578,9 @@
       return '<div class="aviso erro">Prática <strong>' + esc(codigo) +
         '</strong> não encontrada no catálogo. <a href="#/catalogo">Voltar às práticas</a>.</div>';
     }
+    // Ao abrir outra prática, zera o filtro de evidências: os anos disponíveis
+    // mudam de uma prática para outra.
+    if (praticaAtual !== codigo) filtroEvidencias = { ano: '', tipo: '' };
     praticaAtual = codigo;
 
     var pr = item.pratica;
@@ -579,11 +595,15 @@
       var doRequisito = evidencias.filter(function (e) { return e.requisito === req.id; });
       var atendido = doRequisito.length > 0;
 
-      var listaEvid = doRequisito.map(function (e) {
+      var listaEvid = doRequisito.filter(function (e) {
+        return passaFiltroEvid(e, 'requisito');
+      }).map(function (e) {
         var link = urlSegura(e.link);
         var anexo = e.arquivo && e.arquivo.url ? e.arquivo : null;
+        var vinc = vinculoEvidencia(e);
         return (
           '<li><span style="flex:1;min-width:0">' +
+          (e.protocolo ? '<span class="etiqueta azul">' + esc(e.protocolo) + '</span> ' : '') +
           '<strong>' + esc(e.titulo) + '</strong>' +
           (anexo
             ? ' · <a href="' + esc(urlSegura(anexo.url)) + '" target="_blank" ' +
@@ -596,6 +616,7 @@
           (e.descricao ? esc(e.descricao) + ' · ' : '') +
           'ref. ' + dataBR(e.data_referencia) +
           (e.responsavel ? ' · ' + esc(e.responsavel) : '') +
+          (vinc ? ' · ' + vinc : '') +
           '</span></span>' +
           (somenteLeitura ? '' :
             '<button type="button" class="botao secundario pequeno nao-imprimir" ' +
@@ -664,6 +685,7 @@
           '<div class="campo"><label>Observação</label>' +
           '<input type="text" name="descricao" placeholder="o que este documento comprova"></div>' +
           '</div>' +
+          camposVinculoForm() +
           '<button type="submit" class="botao pequeno">Registrar evidência</button>' +
           '</form></details>') +
         '</details>'
@@ -672,11 +694,15 @@
 
     /* ---- evidências próprias do parque, fora da lista do CERNE ---- */
     var proprias = evidencias.filter(function (e) { return !e.requisito; });
-    var propriasHtml = proprias.map(function (e) {
+    var propriasHtml = proprias.filter(function (e) {
+      return passaFiltroEvid(e, 'propria');
+    }).map(function (e) {
       var link = urlSegura(e.link);
       var anexo = e.arquivo && e.arquivo.url ? e.arquivo : null;
+      var vinc = vinculoEvidencia(e);
       return (
         '<li><span style="flex:1;min-width:0">' +
+        (e.protocolo ? '<span class="etiqueta azul">' + esc(e.protocolo) + '</span> ' : '') +
         '<strong>' + esc(e.titulo) + '</strong>' +
         (e.refere_a ? ' <span class="etiqueta cinza">' + esc(e.refere_a) + '</span>' : '') +
         (anexo
@@ -689,6 +715,7 @@
         (e.descricao ? esc(e.descricao) + ' · ' : '') +
         'ref. ' + dataBR(e.data_referencia) +
         (e.responsavel ? ' · ' + esc(e.responsavel) : '') +
+        (vinc ? ' · ' + vinc : '') +
         '</span></span>' +
         (somenteLeitura ? '' :
           '<button type="button" class="botao secundario pequeno nao-imprimir" ' +
@@ -838,6 +865,30 @@
         }).join('') + '</ul></div>'
       : '';
 
+    /* ---- filtros de exibição das evidências (ano e tipo) ---- */
+    var anosDisponiveis = {};
+    evidencias.forEach(function (e) {
+      var a = anoDaEvidencia(e);
+      if (a) anosDisponiveis[a] = true;
+    });
+    var anosFiltro = [{ valor: '', rotulo: 'Todos os anos' }].concat(
+      Object.keys(anosDisponiveis).sort().reverse().map(function (a) {
+        return { valor: a, rotulo: a };
+      })
+    );
+    var tiposFiltro = [
+      { valor: '', rotulo: 'Todos os tipos' },
+      { valor: 'requisito', rotulo: 'Por requisito do CERNE' },
+      { valor: 'propria', rotulo: 'Própria do parque' }
+    ];
+    var filtrosEvidenciaHtml =
+      '<div class="filtros nao-imprimir">' +
+      '<div class="campo sem-margem"><label for="f-ev-ano">Filtrar por ano</label>' +
+      '<select id="f-ev-ano">' + opcoes(anosFiltro, filtroEvidencias.ano) + '</select></div>' +
+      '<div class="campo sem-margem"><label for="f-ev-tipo">Filtrar por tipo</label>' +
+      '<select id="f-ev-tipo">' + opcoes(tiposFiltro, filtroEvidencias.tipo) + '</select></div>' +
+      '</div>';
+
     return (
       '<p class="trilha nao-imprimir">' +
       '<a href="#/catalogo">Práticas</a> › CERNE ' + item.nivel.numero + ' › ' +
@@ -896,6 +947,7 @@
       '<p class="pequeno suave">Cada requisito obrigatório precisa de pelo menos uma evidência ' +
       'para a prática contar como completa. Um requisito aceita <strong>quantas ' +
       'evidências você quiser</strong> — use uma para cada ação ou documento.</p>' +
+      filtrosEvidenciaHtml +
       (requisitosHtml || '<p class="pequeno suave">Esta prática não tem requisitos cadastrados.</p>') +
       '</div>' +
 
@@ -948,6 +1000,7 @@
         '<input type="text" name="descricao" ' +
         'placeholder="o que este material demonstra"></div>' +
         '</div>' +
+        camposVinculoForm() +
         '<button type="submit" class="botao pequeno">Registrar evidência</button>' +
         '</form></details>') +
       '</div>' +
@@ -1007,7 +1060,9 @@
       link: (d.link || '').trim(),
       descricao: (d.descricao || '').trim(),
       data_referencia: d.data_referencia || '',
-      responsavel: (d.responsavel || '').trim()
+      responsavel: (d.responsavel || '').trim(),
+      empreendimento: (d.empreendimento || '').trim(),
+      programa: (d.programa || '').trim()
     };
     if (!requisito) {
       registro.refere_a = (d.refere_a || '').trim();
@@ -1082,6 +1137,15 @@
 
   Telas.pratica.ligar = function () {
     var codigo = praticaAtual;
+
+    var fEvAno = doc.getElementById('f-ev-ano');
+    if (fEvAno) fEvAno.addEventListener('change', function () {
+      filtroEvidencias.ano = fEvAno.value; renderizar();
+    });
+    var fEvTipo = doc.getElementById('f-ev-tipo');
+    if (fEvTipo) fEvTipo.addEventListener('change', function () {
+      filtroEvidencias.tipo = fEvTipo.value; renderizar();
+    });
 
     var formStatus = doc.getElementById('form-status');
     if (formStatus) {
@@ -1202,17 +1266,26 @@
 
   /* -------------------------------------------------------- empreendimentos */
 
+  // Filtro da lista por situação no parque. Vazio = mostra todos.
+  var filtroEmpreendimentos = { situacao: '' };
+
   Telas.empreendimentos = function () {
     var lista = Store.estado().empreendimentos;
     var somenteLeitura = !Store.podeEditar();
 
-    var linhas = lista.map(function (e) {
+    var filtrados = lista.filter(function (e) {
+      return !filtroEmpreendimentos.situacao || e.situacao === filtroEmpreendimentos.situacao;
+    });
+
+    var linhas = filtrados.map(function (e) {
       var notas = mediaEixos(e);
       var cor = corDaSituacao(e.situacao);
       return (
         '<tr>' +
+        '<td class="pequeno">' + esc(e.codigo || '—') + '</td>' +
         '<td><a href="#/empreendimento/' + encodeURIComponent(e.id) + '" class="negrito">' +
-        esc(e.nome) + '</a><br><span class="pequeno suave">' + esc(e.setor || '—') + '</span></td>' +
+        esc(e.nome) + '</a><br><span class="pequeno suave">' + esc(e.setor || '—') +
+        (e.programa ? ' · ' + esc(e.programa) : '') + '</span></td>' +
         '<td class="pequeno">' + esc(e.local || '—') + '</td>' +
         '<td>' + esc(Store.rotuloDe(Store.ESTAGIOS, e.estagio)) + '</td>' +
         '<td><span class="etiqueta ' + cor + '">' +
@@ -1222,6 +1295,9 @@
         '</tr>'
       );
     }).join('');
+
+    var situacoesFiltroEmp = [{ valor: '', rotulo: 'Todas as situações' }]
+      .concat(Store.SITUACOES_EMPREENDIMENTO);
 
     var form = somenteLeitura ? '' :
       '<details class="bloco nao-imprimir"><summary>+ Cadastrar empreendimento</summary>' +
@@ -1241,10 +1317,14 @@
       '<div class="campo"><label>Data de entrada</label>' +
       '<input type="date" name="data_entrada" value="' + hoje() + '"></div>' +
       '</div>' +
-      '<div class="linha-campos">' +
+      '<div class="linha-campos tres">' +
+      '<div class="campo"><label>Programa de origem</label>' +
+      '<input type="text" name="programa" placeholder="ex.: Projeto MUDA 2026/1"></div>' +
       '<div class="campo"><label>Responsável / contato</label><input type="text" name="responsavel"></div>' +
       '<div class="campo"><label>Descrição</label><input type="text" name="descricao"></div>' +
       '</div>' +
+      '<p class="pequeno suave sem-margem">O código (IPE-0000) é gerado ' +
+      'automaticamente ao cadastrar e pode ser ajustado no detalhe.</p>' +
       '<button type="submit" class="botao">Cadastrar</button>' +
       '</form></details>';
 
@@ -1260,23 +1340,40 @@
 
       '<div class="grade grade-4">' +
       indicador('Cadastrados', res.empreendimentos) +
+      indicador('Pré-incubados', res.pre_incubados) +
       indicador('Incubados', res.incubados) +
       indicador('Residentes', res.residentes) +
       indicador('Graduados', res.graduados) +
       '</div>' +
 
+      '<div class="cartao nao-imprimir">' +
+      '<div class="filtros">' +
+      '<div class="campo sem-margem"><label for="f-emp-situacao">Situação no parque</label>' +
+      '<select id="f-emp-situacao">' +
+      opcoes(situacoesFiltroEmp, filtroEmpreendimentos.situacao) + '</select></div>' +
+      '</div></div>' +
+
       '<div class="cartao">' + form +
       (linhas
         ? '<div class="tabela-rolagem"><table class="tabela"><thead><tr>' +
-          '<th>Empreendimento</th><th>Local</th><th>Estágio</th><th>Situação</th>' +
+          '<th>Código</th><th>Empreendimento</th><th>Local</th><th>Estágio</th><th>Situação</th>' +
           '<th class="numero">Média eixos</th><th>Entrada</th>' +
           '</tr></thead><tbody>' + linhas + '</tbody></table></div>'
-        : '<div class="vazio">Nenhum empreendimento cadastrado ainda.</div>') +
+        : '<div class="vazio">' +
+          (filtroEmpreendimentos.situacao && lista.length
+            ? 'Nenhum empreendimento com essa situação.'
+            : 'Nenhum empreendimento cadastrado ainda.') +
+          '</div>') +
       '</div>'
     );
   };
 
   Telas.empreendimentos.ligar = function () {
+    var fSit = doc.getElementById('f-emp-situacao');
+    if (fSit) fSit.addEventListener('change', function () {
+      filtroEmpreendimentos.situacao = fSit.value; renderizar();
+    });
+
     var form = doc.getElementById('form-empreendimento');
     if (!form) return;
     form.addEventListener('submit', function (ev) {
@@ -1287,6 +1384,7 @@
         nome: d.nome.trim(),
         setor: (d.setor || '').trim(),
         local: (d.local || '').trim(),
+        programa: (d.programa || '').trim(),
         estagio: d.estagio || 'ideia',
         situacao: d.situacao || 'apoiado',
         data_entrada: d.data_entrada || '',
@@ -1313,8 +1411,50 @@
   function corDaSituacao(situacao) {
     if (situacao === 'graduado') return 'verde';
     if (situacao === 'residente') return 'amarela';
+    if (situacao === 'pre_incubado') return 'roxa';
     if (situacao === 'desligado') return 'cinza';
     return 'azul';   // apoiado (incubado)
+  }
+
+  /** Vínculo opcional de uma evidência: a startup e/ou o programa a que ela se
+   *  refere. Devolve texto já escapado, pronto para a linha de meta. Registros
+   *  antigos (sem os campos) devolvem string vazia. */
+  function vinculoEvidencia(e) {
+    var partes = [];
+    if (e && e.empreendimento) {
+      var emp = Store.empreendimentoPorId && Store.empreendimentoPorId(e.empreendimento);
+      partes.push('Startup: ' + (emp ? esc(emp.nome) : 'empreendimento removido'));
+    }
+    if (e && e.programa) partes.push('Programa: ' + esc(e.programa));
+    return partes.join(' · ');
+  }
+
+  /** Ano de referência de uma evidência, para o filtro por ano. Usa a data de
+   *  referência e, se faltar, tenta o ano embutido no protocolo (INB-AAAA-...). */
+  function anoDaEvidencia(e) {
+    var a = String((e && e.data_referencia) || '').slice(0, 4);
+    if (/^\d{4}$/.test(a)) return a;
+    var m = /^INB-(\d{4})-/i.exec(String((e && e.protocolo) || ''));
+    return m ? m[1] : '';
+  }
+
+  /** Linha de formulário para vincular a evidência a um empreendimento e/ou
+   *  programa. Os dois campos são opcionais; o dropdown lista as startups já
+   *  cadastradas. Usada nos dois formulários de evidência da tela da prática. */
+  function camposVinculoForm() {
+    var emps = (Store.estado().empreendimentos) || [];
+    var opcoesEmp = '<option value="">— nenhum —</option>' + emps.map(function (e) {
+      return '<option value="' + esc(e.id) + '">' + esc(e.nome) +
+        (e.codigo ? ' (' + esc(e.codigo) + ')' : '') + '</option>';
+    }).join('');
+    return (
+      '<div class="linha-campos">' +
+      '<div class="campo"><label>Vincular a empreendimento (opcional)</label>' +
+      '<select name="empreendimento">' + opcoesEmp + '</select></div>' +
+      '<div class="campo"><label>Programa (opcional)</label>' +
+      '<input type="text" name="programa" placeholder="ex.: Projeto MUDA 2026/1"></div>' +
+      '</div>'
+    );
   }
 
   /** Última nota de cada eixo + média geral. */
@@ -1407,6 +1547,8 @@
       '<div class="cartao">' +
       '<p class="rotulo-secao">Dados do empreendimento</p>' +
       '<ul class="lista pequeno">' +
+      '<li><span class="suave">Código</span><span>' + esc(e.codigo || '—') + '</span></li>' +
+      '<li><span class="suave">Programa de origem</span><span>' + esc(e.programa || '—') + '</span></li>' +
       '<li><span class="suave">Local</span><span>' + esc(e.local || '—') + '</span></li>' +
       '<li><span class="suave">Responsável</span><span>' + esc(e.responsavel || '—') + '</span></li>' +
       '<li><span class="suave">Entrada</span><span>' + dataBR(e.data_entrada) + '</span></li>' +
@@ -1416,6 +1558,14 @@
       (e.descricao ? '<p class="pequeno">' + esc(e.descricao) + '</p>' : '') +
       (somenteLeitura ? '' :
         '<form id="form-dados-emp" class="nao-imprimir espaco-acima">' +
+        '<div class="linha-campos">' +
+        '<div class="campo"><label for="emp-codigo">Código</label>' +
+        '<input type="text" id="emp-codigo" name="codigo" value="' + esc(e.codigo) + '" ' +
+        'placeholder="IPE-0001"></div>' +
+        '<div class="campo"><label for="emp-programa">Programa de origem</label>' +
+        '<input type="text" id="emp-programa" name="programa" value="' + esc(e.programa) + '" ' +
+        'placeholder="ex.: Projeto MUDA 2026/1"></div>' +
+        '</div>' +
         '<div class="campo"><label for="emp-local">Local onde está instalado</label>' +
         '<input type="text" id="emp-local" name="local" value="' + esc(e.local) + '" ' +
         'placeholder="ex.: Prédio 2, sala 12"></div>' +
@@ -1497,6 +1647,8 @@
         var d = dadosDoForm(formDados);
         var nova = d.situacao || e.situacao;
         var mudancas = {
+          codigo: (d.codigo || '').trim(),
+          programa: (d.programa || '').trim(),
           local: (d.local || '').trim(),
           estagio: d.estagio || e.estagio,
           situacao: nova
@@ -1548,11 +1700,15 @@
             var doReq = evid.filter(function (x) { return x.requisito === req.id; });
             var itens = doReq.map(function (x) {
               var link = urlSegura(x.link);
+              var vinc = vinculoEvidencia(x);
               return (
-                '<li><span style="flex:1;min-width:0">' + esc(x.titulo) +
+                '<li><span style="flex:1;min-width:0">' +
+                (x.protocolo ? '<strong>' + esc(x.protocolo) + '</strong> — ' : '') +
+                esc(x.titulo) +
                 '<span class="pequeno suave"> — ref. ' + dataBR(x.data_referencia) +
                 (x.responsavel ? ' · ' + esc(x.responsavel) : '') +
-                (x.descricao ? ' · ' + esc(x.descricao) : '') + '</span>' +
+                (x.descricao ? ' · ' + esc(x.descricao) : '') +
+                (vinc ? ' · ' + vinc : '') + '</span>' +
                 (link ? ' <a href="' + esc(link) + '" class="quebra">' + esc(link) + '</a>' : '') +
                 '</span></li>'
               );
@@ -1632,8 +1788,10 @@
                 outras.map(function (x) {
                   var l = urlSegura(x.link);
                   var a = x.arquivo && x.arquivo.url ? urlSegura(x.arquivo.url) : '';
+                  var vinc = vinculoEvidencia(x);
                   return (
                     '<li><span style="flex:1;min-width:0">' +
+                    (x.protocolo ? '<strong>' + esc(x.protocolo) + '</strong> — ' : '') +
                     '<strong>' + esc(x.titulo) + '</strong>' +
                     (x.refere_a
                       ? ' <span class="etiqueta cinza">' + esc(x.refere_a) + '</span>'
@@ -1642,6 +1800,7 @@
                     dataBR(x.data_referencia) +
                     (x.responsavel ? ' · ' + esc(x.responsavel) : '') +
                     (x.descricao ? ' · ' + esc(x.descricao) : '') +
+                    (vinc ? ' · ' + vinc : '') +
                     '</span>' +
                     (a ? '<br><a href="' + esc(a) + '" class="quebra">' +
                       esc(x.arquivo.nome || 'arquivo') + '</a>' : '') +

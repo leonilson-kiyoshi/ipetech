@@ -932,6 +932,532 @@ function esperarPromessas() {
     faltasComVinculo === faltasSemVinculo,
     faltasSemVinculo + ' vs ' + faltasComVinculo);
 
+  /* -------------------------------------------------------------------------
+     Edição de atividades e controle de pendências (melhoria)
+
+     O DOM simulado não dispara eventos, então estas seções criam "botões" e
+     "formulários" falsos que guardam o manipulador registrado pelo app.js
+     (ao_click, ao_submit, ao_change) e o acionam à mão. Assim o fluxo real
+     (clique -> formulário -> Store.atualizarEm) é exercitado de ponta a ponta.
+  ------------------------------------------------------------------------- */
+
+  const consultaOriginal = documento.querySelectorAll;
+
+  function botaoFalso(atributos) {
+    const el = criarElemento('falso');
+    el.getAttribute = (k) => (k in atributos ? atributos[k] : null);
+    el.addEventListener = (evento, fn) => { el['ao_' + evento] = fn; };
+    return el;
+  }
+  function simularElementos(mapa) {
+    documento.querySelectorAll = (seletor) => mapa[seletor] || [];
+  }
+  function pararSimulacao() { documento.querySelectorAll = consultaOriginal; }
+  /** Formulário do DOM simulado: `elements` no formato que dadosDoForm lê. */
+  function formFalso(id, valores) {
+    const f = documento.getElementById(id);
+    f.elements = Object.keys(valores).map((nome) => ({ name: nome, value: valores[nome] }));
+    f.addEventListener = (evento, fn) => { f['ao_' + evento] = fn; };
+    return f;
+  }
+  function semUndefined(valor) {
+    if (valor === undefined) return false;
+    if (valor && typeof valor === 'object') {
+      return Object.keys(valor).every((k) => semUndefined(valor[k]));
+    }
+    return true;
+  }
+  const evento = { preventDefault() {} };
+  const torrada = () => documento.getElementById('torrada').textContent;
+  const valoresEdicao = (a, mudancas) => Object.assign({
+    titulo: a.titulo || '', tipo: a.tipo || '', data_realizacao: a.data_realizacao || '',
+    local: a.local || '', responsavel: a.responsavel || '', programa: a.programa || '',
+    pratica: a.pratica || '', empreendimento: a.empreendimento || '',
+    descricao: a.descricao || '', responsavel_pendencia: a.responsavel_pendencia || ''
+  }, mudancas || {});
+
+  // Espia as gravações: registra o que o app mandou para o Store.
+  const chamadas = [];
+  const atualizarOriginal = Store.atualizarEm;
+  Store.atualizarEm = function (lista, id, dados) {
+    chamadas.push({ lista: lista, id: id, bruto: dados, dados: JSON.parse(JSON.stringify(dados)) });
+    return atualizarOriginal.apply(Store, arguments);
+  };
+
+  console.log('\n24) Edição de atividades');
+
+  Store.limpar();
+  Store.criarEm('atividades', {
+    tipo: 'evento', titulo: 'Palestra de abertura', descricao: '',
+    data_realizacao: '2026-12-20', local: 'Auditório', responsavel: 'Ana',
+    pratica: '1.1.1', empreendimento: '', programa: ''
+  });
+  const atvE = Store.estado().atividades[0];
+  const protoE = atvE.protocolo;
+
+  html = renderizarRota('#/atividades');
+  verificar('gestor vê o botão Editar em cada linha',
+    html.indexOf('data-editar-atividade="' + atvE.id + '"') !== -1 &&
+    html.indexOf('>Editar<') !== -1);
+  verificar('sem edição aberta não há formulário de edição',
+    html.indexOf('form-atividade-editar') === -1);
+  verificar('o cadastro ganhou o campo de responsável pela complementação',
+    html.indexOf('name="responsavel_pendencia"') !== -1);
+
+  const botEditar = botaoFalso({ 'data-editar-atividade': atvE.id });
+  const formEd = formFalso('form-atividade-editar', valoresEdicao(atvE));
+  const btnCancelar = documento.getElementById('btn-atv-cancelar');
+  btnCancelar.addEventListener = (ev, fn) => { btnCancelar['ao_' + ev] = fn; };
+  simularElementos({ '[data-editar-atividade]': [botEditar] });
+
+  renderizarRota('#/atividades');
+  botEditar.ao_click();
+  html = conteudo.innerHTML;
+  verificar('clicar em Editar abre o formulário pré-preenchido',
+    html.indexOf('id="form-atividade-editar"') !== -1 &&
+    html.indexOf('value="Palestra de abertura"') !== -1 &&
+    html.indexOf('value="Auditório"') !== -1 &&
+    html.indexOf('value="2026-12-20"') !== -1 &&
+    html.indexOf('<option value="evento" selected>') !== -1 &&
+    html.indexOf('<option value="1.1.1" selected>') !== -1);
+  verificar('o formulário traz Salvar e Cancelar',
+    html.indexOf('Salvar alterações') !== -1 && html.indexOf('id="btn-atv-cancelar"') !== -1);
+  verificar('o formulário traz o responsável pela complementação',
+    html.indexOf('Responsável pela complementação (opcional)') !== -1);
+  verificar('o protocolo aparece como texto somente leitura, com a nota',
+    html.indexOf(protoE) !== -1 && html.indexOf('não muda') !== -1 &&
+    html.indexOf('name="protocolo"') === -1);
+
+  // (a)+(b) muda a data para OUTRO ANO e o título: só esses dois campos vão
+  // para o Store, e o protocolo permanece.
+  formEd.elements = Object.keys(valoresEdicao(atvE, {
+    titulo: 'Palestra de abertura 2027', data_realizacao: '2027-01-08'
+  })).map((n) => ({
+    name: n,
+    value: valoresEdicao(atvE, { titulo: 'Palestra de abertura 2027', data_realizacao: '2027-01-08' })[n]
+  }));
+  chamadas.length = 0;
+  formEd.ao_submit(evento);
+  const atvDepois = Store.estado().atividades[0];
+  verificar('(b) só os campos alterados são enviados ao Store',
+    chamadas.length === 1 && chamadas[0].lista === 'atividades' && chamadas[0].id === atvE.id &&
+    Object.keys(chamadas[0].dados).sort().join(',') === 'data_realizacao,titulo',
+    JSON.stringify(chamadas));
+  verificar('(b) o que foi enviado não tem undefined', semUndefined(chamadas[0].bruto));
+  verificar('(a) mudar a data para outro ano mantém o protocolo',
+    atvDepois.protocolo === protoE && atvDepois.data_realizacao === '2027-01-08' &&
+    atvDepois.titulo === 'Palestra de abertura 2027', atvDepois.protocolo + ' vs ' + protoE);
+  verificar('o protocolo não foi enviado', !('protocolo' in chamadas[0].dados));
+  verificar('o formulário fecha depois de salvar',
+    conteudo.innerHTML.indexOf('form-atividade-editar') === -1);
+  verificar('avisa que a atividade foi atualizada', torrada() === 'Atividade atualizada.', torrada());
+  verificar('a edição grava atualizado_em', !!atvDepois.atualizado_em);
+  verificar('a lista mostra o novo título e o mesmo protocolo',
+    conteudo.innerHTML.indexOf('Palestra de abertura 2027') !== -1 &&
+    conteudo.innerHTML.indexOf(protoE) !== -1);
+  verificar('a lista mostra quando foi cadastrada e quando foi editada',
+    conteudo.innerHTML.indexOf('Cadastrada em') !== -1 &&
+    conteudo.innerHTML.indexOf('Editada em') !== -1);
+
+  // (b) nada alterado: não grava e avisa.
+  botEditar.ao_click();
+  formEd.elements = Object.keys(valoresEdicao(atvDepois)).map((n) => ({
+    name: n, value: valoresEdicao(atvDepois)[n]
+  }));
+  chamadas.length = 0;
+  formEd.ao_submit(evento);
+  verificar('(b) nada alterado: não grava', chamadas.length === 0);
+  verificar('(b) nada alterado: avisa "Nada foi alterado."',
+    torrada() === 'Nada foi alterado.', torrada());
+  verificar('(b) nada alterado: o formulário continua aberto',
+    conteudo.innerHTML.indexOf('form-atividade-editar') !== -1);
+
+  // título vazio
+  formEd.elements = Object.keys(valoresEdicao(atvDepois)).map((n) => ({
+    name: n, value: valoresEdicao(atvDepois, { titulo: '   ', local: 'Mudou' })[n]
+  }));
+  formEd.ao_submit(evento);
+  verificar('título vazio não grava e avisa', chamadas.length === 0 &&
+    torrada() === 'Informe o título da atividade.', torrada());
+
+  // responsável pela complementação é editável e tem prioridade na exibição
+  formEd.elements = Object.keys(valoresEdicao(atvDepois)).map((n) => ({
+    name: n, value: valoresEdicao(atvDepois, { responsavel_pendencia: 'Bruno' })[n]
+  }));
+  formEd.ao_submit(evento);
+  verificar('responsavel_pendencia é editado e enviado sozinho',
+    chamadas.length === 1 && Object.keys(chamadas[0].dados).join(',') === 'responsavel_pendencia' &&
+    Store.estado().atividades[0].responsavel_pendencia === 'Bruno');
+  verificar('o protocolo segue o mesmo depois de várias edições',
+    Store.estado().atividades[0].protocolo === protoE);
+
+  // cancelar
+  renderizarRota('#/atividades');
+  botEditar.ao_click();
+  verificar('reabre o formulário', conteudo.innerHTML.indexOf('form-atividade-editar') !== -1);
+  chamadas.length = 0;
+  btnCancelar.ao_click();
+  verificar('Cancelar fecha o formulário sem gravar',
+    conteudo.innerHTML.indexOf('form-atividade-editar') === -1 && chamadas.length === 0);
+
+  // (i) modo consulta não vê os botões nem o formulário
+  botEditar.ao_click();
+  Store.definirPerfil('consulta');
+  html = renderizarRota('#/atividades');
+  verificar('(i) consulta: sem botão Editar nem Remover',
+    html.indexOf('data-editar-atividade') === -1 &&
+    html.indexOf('data-remover-atividade') === -1);
+  verificar('(i) consulta: sem formulário de edição, mesmo com edição aberta antes',
+    html.indexOf('form-atividade-editar') === -1 && html.indexOf('Salvar alterações') === -1);
+  verificar('(i) consulta: continua vendo a situação da documentação',
+    html.indexOf('Pendente (') !== -1 && html.indexOf('Faltam:') !== -1);
+  chamadas.length = 0;
+  formEd.ao_submit(evento);
+  verificar('(i) consulta: um envio atrasado do formulário não grava', chamadas.length === 0);
+  botEditar.ao_click();
+  verificar('(i) consulta: clicar num botão antigo não abre edição',
+    conteudo.innerHTML.indexOf('form-atividade-editar') === -1);
+  Store.definirPerfil('gestor');
+  btnCancelar.ao_click(); // zera a edição pendente
+  verificar('gestor de volta: sem edição aberta',
+    conteudo.innerHTML.indexOf('form-atividade-editar') === -1);
+
+  // autoria na lista
+  Store.estado().atividades[0].criado_por_nome = 'Maria <b>';
+  Store.estado().atividades[0].atualizado_por_nome = 'João';
+  html = renderizarRota('#/atividades');
+  verificar('mostra "Cadastrada por <nome> em <data>"',
+    html.indexOf('Cadastrada por Maria &lt;b&gt; em ') !== -1, html.slice(0, 200));
+  verificar('mostra "Editada por <nome> em <data>"', html.indexOf('Editada por João em ') !== -1);
+  verificar('nome de autor é escapado', html.indexOf('Maria <b>') === -1);
+
+  // dado antigo, sem autoria nenhuma
+  Store.limpar();
+  Store.estado().atividades.push({
+    id: 'velha1', tipo: 'evento', titulo: 'Atividade antiga sem autoria',
+    data_realizacao: '2024-05-01'
+  });
+  html = renderizarRota('#/atividades');
+  verificar('atividade antiga renderiza sem erro',
+    html.indexOf('Ocorreu um erro ao montar esta tela') === -1 &&
+    html.indexOf('Atividade antiga sem autoria') !== -1);
+  verificar('atividade antiga: omite as linhas de autoria',
+    html.indexOf('Cadastrada') === -1 && html.indexOf('Editada') === -1);
+  verificar('atividade antiga: aparece como Pendente/Incompleta sem quebrar',
+    html.indexOf('Incompleta') !== -1 || html.indexOf('Pendente (') !== -1);
+
+  console.log('\n25) Controle de pendências das atividades');
+
+  Store.limpar();
+  const novaAtv = (extra) => {
+    Store.criarEm('atividades', Object.assign({
+      tipo: 'evento', titulo: 'x', descricao: '', data_realizacao: '2026-05-10',
+      local: 'Sala 1', responsavel: 'Ana', pratica: '1.1.1', empreendimento: '', programa: ''
+    }, extra));
+    const todas = Store.estado().atividades;
+    return todas[todas.length - 1];
+  };
+  const aPend = novaAtv({ titulo: 'Evento Pendente' });
+  const aComp = novaAtv({ titulo: 'Acao Completa', tipo: 'outra' });
+  const aInc = novaAtv({ titulo: 'Acao Incompleta', tipo: 'outra', local: '' });
+  const aSemResp = novaAtv({ titulo: 'Sem Responsavel', tipo: 'outra', responsavel: '' });
+  const faltasAntesAtv = JSON.stringify(_info('1.1.1').faltas);
+  const aptoAntes = Store.calcularProntidao().apto_nivel;
+
+  html = renderizarRota('#/atividades');
+  verificar('a tabela tem a coluna Documentação', html.indexOf('<th>Documentação</th>') !== -1);
+  verificar('evento sem documentos: etiqueta amarela "Pendente (3)"',
+    html.indexOf('<span class="etiqueta amarela">Pendente (3)</span>') !== -1);
+  verificar('ação sem pendência: etiqueta verde "Completa"',
+    html.indexOf('<span class="etiqueta verde">Completa</span>') !== -1);
+  verificar('cadastro com campo faltando: etiqueta vermelha "Incompleta"',
+    html.indexOf('<span class="etiqueta vermelha">Incompleta</span>') !== -1);
+  verificar('o filtro Documentação existe com as 4 opções',
+    html.indexOf('id="f-atv-doc"') !== -1 && html.indexOf('>Todas<') !== -1 &&
+    html.indexOf('<option value="completa">') !== -1 &&
+    html.indexOf('<option value="pendente">') !== -1 &&
+    html.indexOf('<option value="incompleta">') !== -1);
+
+  // detalhe das pendências (gestor)
+  verificar('detalhe: "Faltam:" com botão Dispensar ao lado de cada documento',
+    html.indexOf('<strong>Faltam:</strong> Lista de presença <button') !== -1 &&
+    html.indexOf('data-dispensar-doc="' + aPend.id + '" data-tipo-doc="lista_presenca"') !== -1 &&
+    html.indexOf('data-dispensar-doc="' + aPend.id + '" data-tipo-doc="relatorio"') !== -1);
+  verificar('detalhe: "Cadastro incompleto: sem local"',
+    html.indexOf('<strong>Cadastro incompleto:</strong> sem local') !== -1);
+  verificar('detalhe: sem responsável nem complementação mostra "—"',
+    html.indexOf('Responsável pela complementação: <strong>—</strong>') !== -1);
+  verificar('detalhe: sem responsavel_pendencia usa o responsável do cadastro',
+    html.indexOf('Responsável pela complementação: <strong>Ana</strong>') !== -1);
+  Store.atualizarEm('atividades', aPend.id, { responsavel_pendencia: 'Carlos' });
+  html = renderizarRota('#/atividades');
+  verificar('detalhe: responsavel_pendencia tem prioridade sobre o responsável',
+    html.indexOf('Responsável pela complementação: <strong>Carlos</strong>') !== -1);
+  verificar('atividade completa não mostra responsável pela complementação',
+    (html.match(/Responsável pela complementação: <strong>/g) || []).length === 3);
+  verificar('tipo "outra" explica que não há documento específico',
+    html.indexOf('Nenhum documento específico') !== -1);
+
+  // filtro Documentação (mesmo padrão dos outros filtros)
+  const fDoc = documento.getElementById('f-atv-doc');
+  fDoc.addEventListener = (ev, fn) => { fDoc['ao_' + ev] = fn; };
+  renderizarRota('#/atividades');
+  const titulosNaTela = () => ['Evento Pendente', 'Acao Completa', 'Acao Incompleta', 'Sem Responsavel']
+    .filter((t) => conteudo.innerHTML.indexOf('<strong>' + t + '</strong>') !== -1).join('|');
+  fDoc.value = 'pendente'; fDoc.ao_change();
+  verificar('(e) filtro Pendente mostra só a pendente', titulosNaTela() === 'Evento Pendente', titulosNaTela());
+  verificar('(e) o filtro fica marcado no menu', conteudo.innerHTML.indexOf('value="pendente" selected') !== -1);
+  fDoc.value = 'completa'; fDoc.ao_change();
+  verificar('(e) filtro Completa mostra só a completa', titulosNaTela() === 'Acao Completa', titulosNaTela());
+  fDoc.value = 'incompleta'; fDoc.ao_change();
+  verificar('(e) filtro Incompleta mostra as incompletas',
+    titulosNaTela() === 'Acao Incompleta|Sem Responsavel', titulosNaTela());
+  fDoc.value = ''; fDoc.ao_change();
+  verificar('(e) filtro Todas mostra tudo', titulosNaTela().split('|').length === 4, titulosNaTela());
+
+  // classificar uma evidência vinculada, sem tipo
+  Store.criarEm('evidencias', {
+    pratica: '1.1.1', requisito: null, refere_a: 'x', titulo: 'Foto da turma',
+    data_referencia: '2026-05-10', atividade: aPend.id, tipo_documento: ''
+  });
+  const evSemTipo = Store.estado().evidencias[0];
+  html = renderizarRota('#/atividades');
+  verificar('evidência sem tipo: gestor vê o seletor de classificação',
+    html.indexOf('data-classificar-evidencia="' + evSemTipo.id + '"') !== -1 &&
+    html.indexOf('Classificar documento') !== -1);
+  verificar('evidência sem tipo NÃO reduz as pendências',
+    html.indexOf('<span class="etiqueta amarela">Pendente (3)</span>') !== -1);
+
+  Store.definirPerfil('consulta');
+  html = renderizarRota('#/atividades');
+  verificar('(i) consulta: não vê o seletor, mas vê "tipo não informado"',
+    html.indexOf('data-classificar-evidencia') === -1 &&
+    html.indexOf('tipo não informado') !== -1);
+  verificar('(i) consulta: não vê Dispensar nem Desfazer dispensa',
+    html.indexOf('data-dispensar-doc') === -1 && html.indexOf('data-desfazer-dispensa') === -1);
+  verificar('(i) consulta: vê "Faltam:" sem botões',
+    html.indexOf('<strong>Faltam:</strong> Lista de presença, Registro fotográfico, Relatório') !== -1);
+  Store.definirPerfil('gestor');
+
+  const seletor = botaoFalso({ 'data-classificar-evidencia': evSemTipo.id });
+  simularElementos({ '[data-classificar-evidencia]': [seletor] });
+  renderizarRota('#/atividades');
+  chamadas.length = 0;
+  seletor.value = '';
+  seletor.ao_change();
+  verificar('escolher "Classificar documento…" (vazio) não grava', chamadas.length === 0);
+  seletor.value = 'lista_presenca';
+  seletor.ao_change();
+  verificar('classificar chama atualizarEm em evidencias só com tipo_documento',
+    chamadas.length === 1 && chamadas[0].lista === 'evidencias' &&
+    chamadas[0].id === evSemTipo.id &&
+    JSON.stringify(chamadas[0].dados) === '{"tipo_documento":"lista_presenca"}',
+    JSON.stringify(chamadas));
+  html = conteudo.innerHTML;
+  verificar('a evidência classificada reduz as pendências (3 -> 2)',
+    html.indexOf('<span class="etiqueta amarela">Pendente (2)</span>') !== -1);
+  verificar('a evidência classificada mostra o tipo e perde o seletor',
+    html.indexOf('data-classificar-evidencia') === -1 &&
+    html.indexOf('<span class="etiqueta cinza">Lista de presença</span>') !== -1);
+
+  // dispensa com motivo
+  const botDisp = botaoFalso({
+    'data-dispensar-doc': aPend.id, 'data-tipo-doc': 'registro_fotografico'
+  });
+  simularElementos({ '[data-dispensar-doc]': [botDisp] });
+  renderizarRota('#/atividades');
+  let perguntou = null;
+  janela.prompt = (texto) => { perguntou = texto; return '   '; };
+  chamadas.length = 0;
+  botDisp.ao_click();
+  verificar('dispensar pergunta o motivo', perguntou !== null && perguntou.indexOf('Registro fotográfico') !== -1);
+  verificar('motivo em branco não dispensa e avisa',
+    chamadas.length === 0 && torrada() === 'Informe o motivo para dispensar o documento.', torrada());
+  janela.prompt = () => null;
+  botDisp.ao_click();
+  verificar('cancelar o prompt não dispensa', chamadas.length === 0);
+
+  janela.prompt = () => '  Evento interno, sem fotos <b>  ';
+  botDisp.ao_click();
+  const dispensas = Store.estado().atividades.filter((x) => x.id === aPend.id)[0].docs_dispensados;
+  verificar('dispensa grava só docs_dispensados (lista completa) via atualizarEm',
+    chamadas.length === 1 && chamadas[0].lista === 'atividades' &&
+    Object.keys(chamadas[0].dados).join(',') === 'docs_dispensados' &&
+    Array.isArray(dispensas) && dispensas.length === 1);
+  verificar('a dispensa guarda tipo, motivo aparado, por_nome e data ISO, sem undefined',
+    dispensas[0].tipo === 'registro_fotografico' &&
+    dispensas[0].motivo === 'Evento interno, sem fotos <b>' &&
+    dispensas[0].por_nome === '' && !isNaN(Date.parse(dispensas[0].em)) &&
+    semUndefined(chamadas[0].bruto), JSON.stringify(dispensas));
+  html = conteudo.innerHTML;
+  verificar('dispensado deixa de contar como pendente (2 -> 1)',
+    html.indexOf('<span class="etiqueta amarela">Pendente (1)</span>') !== -1);
+  verificar('mostra "Dispensados:" com o motivo (escapado)',
+    html.indexOf('<strong>Dispensados:</strong> Registro fotográfico (Evento interno, sem fotos &lt;b&gt;)') !== -1 &&
+    html.indexOf('Evento interno, sem fotos <b>') === -1);
+  verificar('oferece "Desfazer dispensa"',
+    html.indexOf('data-desfazer-dispensa="' + aPend.id + '" data-tipo-doc="registro_fotografico"') !== -1);
+
+  // por_nome vem do usuário logado (nuvem) quando disponível
+  Store.usuario = () => ({ displayName: 'Fulana', email: 'f@x.org' });
+  const botDisp2 = botaoFalso({ 'data-dispensar-doc': aPend.id, 'data-tipo-doc': 'relatorio' });
+  simularElementos({ '[data-dispensar-doc]': [botDisp2] });
+  renderizarRota('#/atividades');
+  janela.prompt = () => 'Sem relatório neste caso';
+  botDisp2.ao_click();
+  delete Store.usuario;
+  const dispensas2 = Store.estado().atividades.filter((x) => x.id === aPend.id)[0].docs_dispensados;
+  verificar('por_nome recebe o nome do usuário quando há login',
+    dispensas2.length === 2 && dispensas2[1].tipo === 'relatorio' && dispensas2[1].por_nome === 'Fulana' &&
+    dispensas2[0].tipo === 'registro_fotografico', JSON.stringify(dispensas2));
+  verificar('tudo atendido/dispensado => Completa',
+    Store.situacaoDocumentalDaAtividade(
+      Store.estado().atividades.filter((x) => x.id === aPend.id)[0]
+    ).situacao === 'completa');
+
+  // dispensar tipo que não está faltando é ignorado
+  const botDisp3 = botaoFalso({ 'data-dispensar-doc': aPend.id, 'data-tipo-doc': 'lista_presenca' });
+  simularElementos({ '[data-dispensar-doc]': [botDisp3] });
+  renderizarRota('#/atividades');
+  chamadas.length = 0;
+  botDisp3.ao_click();
+  verificar('dispensar documento que já está atendido é ignorado', chamadas.length === 0);
+
+  // desfazer
+  const botDes = botaoFalso({
+    'data-desfazer-dispensa': aPend.id, 'data-tipo-doc': 'registro_fotografico'
+  });
+  simularElementos({ '[data-desfazer-dispensa]': [botDes] });
+  renderizarRota('#/atividades');
+  chamadas.length = 0;
+  botDes.ao_click();
+  const dispensas3 = Store.estado().atividades.filter((x) => x.id === aPend.id)[0].docs_dispensados;
+  verificar('desfazer dispensa grava a lista sem o tipo',
+    chamadas.length === 1 && dispensas3.length === 1 && dispensas3[0].tipo === 'relatorio' &&
+    semUndefined(chamadas[0].bruto));
+  verificar('o documento volta a ser pendente (Pendente (1))',
+    conteudo.innerHTML.indexOf('<span class="etiqueta amarela">Pendente (1)</span>') !== -1);
+
+  // consulta nunca dispensa, mesmo com botão antigo na mão
+  Store.definirPerfil('consulta');
+  chamadas.length = 0;
+  botDes.ao_click();
+  botDisp.ao_click();
+  verificar('(i) consulta: botões antigos não gravam nada', chamadas.length === 0);
+  Store.definirPerfil('gestor');
+
+  // (f) as pendências não mexem na prontidão
+  verificar('(f) as pendências de atividades não mudam as faltas da prática',
+    JSON.stringify(_info('1.1.1').faltas) === faltasAntesAtv);
+  verificar('(f) nem o nível de aptidão', Store.calcularProntidao().apto_nivel === aptoAntes);
+
+  // formulário de evidência: tipo do documento
+  html = renderizarRota('#/pratica/1.1.1');
+  verificar('o formulário de evidência oferece o tipo do documento (opcional)',
+    html.indexOf('Tipo do documento (opcional)') !== -1 &&
+    html.indexOf('name="tipo_documento"') !== -1 &&
+    html.indexOf('— não informado —') !== -1);
+  verificar('o seletor lista os 5 tipos de documento',
+    ['lista_presenca', 'registro_fotografico', 'relatorio', 'ata', 'outro']
+      .every((v) => html.indexOf('<option value="' + v + '">') !== -1));
+
+  const formEv = botaoFalso({});
+  formEv.elements = [
+    { name: 'titulo', value: 'Lista assinada' }, { name: 'refere_a', value: 'x' },
+    { name: 'data_referencia', value: '2026-05-10' }, { name: 'atividade', value: aPend.id },
+    { name: 'tipo_documento', value: ' lista_presenca ' }
+  ];
+  simularElementos({ '[data-form-evidencia-propria]': [formEv] });
+  renderizarRota('#/pratica/1.1.1');
+  formEv.ao_submit(evento);
+  let evNova = Store.estado().evidencias.filter((x) => x.titulo === 'Lista assinada')[0];
+  verificar('enviarEvidencia grava tipo_documento aparado',
+    !!evNova && evNova.tipo_documento === 'lista_presenca' && evNova.atividade === aPend.id);
+  formEv.elements = [{ name: 'titulo', value: 'Sem tipo' }, { name: 'refere_a', value: 'x' }];
+  formEv.ao_submit(evento);
+  evNova = Store.estado().evidencias.filter((x) => x.titulo === 'Sem tipo')[0];
+  verificar('sem tipo informado grava string vazia (nunca undefined)',
+    !!evNova && evNova.tipo_documento === '' && semUndefined(evNova));
+
+  // (g) painel
+  pararSimulacao();
+  const resPainel = Store.resumo();
+  html = renderizarRota('#/');
+  const achouPainel = /Atividades com documentação pendente<\/div><div class="valor">(\d+)<\/div>/.exec(html);
+  verificar('(g) o painel mostra o indicador "Atividades com documentação pendente"',
+    !!achouPainel, html.slice(0, 200));
+  verificar('(g) o valor é pendentes + incompletas',
+    !!achouPainel && Number(achouPainel[1]) === resPainel.atividades_pendentes &&
+    // 1 pendente (Evento Pendente: falta só o registro fotográfico) + 2
+    // incompletas (Acao Incompleta e Sem Responsavel) = 3.
+    resPainel.atividades_com_documentos_faltando === 1 &&
+    resPainel.atividades_incompletas === 2 && resPainel.atividades_pendentes === 3,
+    achouPainel && achouPainel[1]);
+  verificar('(g) o indicador leva para as atividades', html.indexOf('href="#/atividades"') !== -1);
+  verificar('(g) os indicadores existentes continuam',
+    ['Práticas completas', 'Evidências registradas', 'Medições lançadas', 'Planos de ação abertos']
+      .every((t) => html.indexOf(t) !== -1));
+
+  console.log('\n26) Histórico mostra o que mudou');
+
+  Store.naNuvem = true;
+  Store.estado().historico = [
+    {
+      id: 'h1', colecao: 'atividades', registro_id: 'a', acao: 'editar',
+      resumo: 'Atividade — Palestra (ATV-2026-001)', quando: '2026-04-01T12:00:00.000Z',
+      quem: 'u1', quem_nome: 'Maria',
+      alteracoes: [
+        { campo: 'titulo', de: 'Palestra', para: 'Palestra <b>2</b>' },
+        { campo: 'data_realizacao', de: '2026-12-20', para: '2027-01-08' },
+        { campo: 'tipo', de: 'evento', para: 'reuniao' },
+        { campo: 'local', de: '', para: 'Sala 3' },
+        { campo: 'campo_inventado', de: 'a', para: 'b' }
+      ]
+    },
+    {
+      id: 'h2', colecao: 'evidencias', registro_id: 'e', acao: 'editar',
+      resumo: 'Evidência antiga sem alteracoes', quando: '2026-03-01T09:00:00.000Z',
+      quem: 'u2', quem_nome: 'João'
+    },
+    {
+      id: 'h3', colecao: 'planos', registro_id: 'p', acao: 'editar',
+      resumo: 'Plano com alteracoes malformadas', quando: '2026-02-01T09:00:00.000Z',
+      quem: 'u2', quem_nome: 'João', alteracoes: 'lixo'
+    },
+    {
+      id: 'h4', colecao: 'planos', registro_id: 'p', acao: 'editar',
+      resumo: 'Plano com itens vazios', quando: '2026-01-01T09:00:00.000Z',
+      quem: 'u2', quem_nome: 'João', alteracoes: [null, {}, { campo: '' }]
+    }
+  ];
+  html = renderizarRota('#/historico');
+  verificar('(h) histórico renderiza sem erro',
+    html.indexOf('Ocorreu um erro ao montar esta tela') === -1 &&
+    html.indexOf('Histórico de alterações') !== -1, html.slice(0, 200));
+  verificar('(h) mostra "campo: de → para" com rótulos amigáveis',
+    html.indexOf('<strong>Título:</strong> Palestra → Palestra &lt;b&gt;2&lt;/b&gt;') !== -1 &&
+    html.indexOf('<strong>Data de realização:</strong> 2026-12-20 → 2027-01-08') !== -1,
+    html.slice(0, 300));
+  verificar('(h) o tipo aparece pelo rótulo (Evento → Reunião)',
+    html.indexOf('<strong>Tipo:</strong> Evento → Reunião') !== -1);
+  verificar('(h) valor vazio aparece como (vazio)',
+    html.indexOf('<strong>Local:</strong> (vazio) → Sala 3') !== -1);
+  verificar('(h) campo desconhecido mostra o nome do campo',
+    html.indexOf('<strong>campo_inventado:</strong> a → b') !== -1);
+  verificar('(h) valores são escapados', html.indexOf('<b>2</b>') === -1);
+  verificar('(h) item antigo, sem alteracoes, continua aparecendo',
+    html.indexOf('Evidência antiga sem alteracoes') !== -1);
+  verificar('(h) alteracoes malformadas não quebram nem geram lista',
+    html.indexOf('Plano com alteracoes malformadas') !== -1 &&
+    html.indexOf('Plano com itens vazios') !== -1 &&
+    (html.match(/<ul class="alteracoes">/g) || []).length === 1);
+  Store.estado().historico = [];
+  delete Store.naNuvem;
+
+  Store.atualizarEm = atualizarOriginal;
+  pararSimulacao();
+  delete janela.prompt;
+
   console.log('\n' + (falhas === 0 ? 'TODOS OS TESTES PASSARAM' : falhas + ' TESTE(S) FALHARAM'));
   process.exit(falhas === 0 ? 0 : 1);
 })();

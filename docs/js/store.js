@@ -132,6 +132,9 @@
     var alvo = estado[lista].filter(function (r) { return r.id === id; })[0];
     if (!alvo) return null;
     Object.keys(dados).forEach(function (k) { alvo[k] = dados[k]; });
+    // Autoria da edição de atividades (aditivo). Sem login não há "quem"; fica
+    // só o instante. Outras coleções seguem como antes.
+    if (lista === 'atividades') alvo.atualizado_em = new Date().toISOString();
     salvar();
     return alvo;
   }
@@ -427,6 +430,7 @@
     EIXOS: Regras.EIXOS,
     PAPEIS: Regras.PAPEIS,
     TIPOS_ATIVIDADE: Regras.TIPOS_ATIVIDADE,
+    TIPOS_DOCUMENTO: Regras.TIPOS_DOCUMENTO,
     rotuloDe: Regras.rotuloDe,
 
     // ciclo de vida
@@ -465,6 +469,11 @@
     },
     calcularProntidao: function () { return Regras.calcularProntidao(estado); },
     resumo: function () { return Regras.resumo(estado); },
+
+    // pendências documentais das atividades (informativo; fora da prontidão)
+    situacaoDocumentalDaAtividade: function (atividade) {
+      return Regras.situacaoDocumentalDaAtividade(estado, atividade);
+    },
 
     // backup
     baixarBackup: baixarBackup,

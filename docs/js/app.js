@@ -406,6 +406,18 @@
       indicador('Planos de ação abertos', res.planos_abertos) +
       '</div>' +
 
+      // Pendências documentais das atividades: indicador à parte, apenas
+      // informativo. Não entra no radar nem na prontidão.
+      '<div class="grade grade-4 espaco-acima">' +
+      '<div class="cartao indicador">' +
+      '<div class="nome">Atividades com documentação pendente</div>' +
+      '<div class="valor">' + esc(res.atividades_pendentes || 0) + '</div>' +
+      '<p class="pequeno suave sem-margem">' +
+      esc(res.atividades_com_documentos_faltando || 0) + ' sem todos os documentos · ' +
+      esc(res.atividades_incompletas || 0) + ' com cadastro incompleto</p>' +
+      '<a class="pequeno" href="#/atividades">Ver atividades</a>' +
+      '</div></div>' +
+
       '<h2 class="espaco-acima">Níveis</h2>' +
       '<div class="grade grade-2">' + cartoesNivel + '</div>' +
       pendencias +
@@ -1122,7 +1134,10 @@
       // Vínculo opcional a uma atividade já cadastrada (Fase 2). Campo extra e
       // aditivo: evidências antigas sem ele seguem válidas, e a regra de
       // prontidão o ignora.
-      atividade: (d.atividade || '').trim()
+      atividade: (d.atividade || '').trim(),
+      // Tipo do documento (opcional): usado só no controle de pendências das
+      // atividades. Evidências antigas, sem ele, seguem válidas.
+      tipo_documento: (d.tipo_documento || '').trim()
     };
     if (!requisito) {
       registro.refere_a = (d.refere_a || '').trim();
@@ -1558,7 +1573,13 @@
       '<input type="text" name="programa" placeholder="ex.: Projeto MUDA 2026/1"></div>' +
       '</div>' +
       '<div class="campo"><label>Vincular a atividade (opcional)</label>' +
-      '<select name="atividade">' + opcoesAtv + '</select></div>'
+      '<select name="atividade">' + opcoesAtv + '</select></div>' +
+      // Tipo do documento (opcional): é o que permite saber se a atividade
+      // tem a lista de presença, o relatório etc. Só informativo.
+      '<div class="campo"><label>Tipo do documento (opcional)</label>' +
+      '<select name="tipo_documento">' +
+      '<option value="">— não informado —</option>' +
+      opcoes(Store.TIPOS_DOCUMENTO || [], '') + '</select></div>'
     );
   }
 
@@ -1946,12 +1967,184 @@
 
   /* ------------------------------------------------------------ atividades */
 
-  // Filtros da lista de atividades. Vazio = mostra todas.
-  var filtroAtividades = { ano: '', tipo: '' };
+  // Filtros da lista de atividades. Vazio = mostra todas. `documentacao`
+  // filtra pela situação documental: completa | pendente | incompleta.
+  var filtroAtividades = { ano: '', tipo: '', documentacao: '' };
+
+  // Id da atividade cujo formulário de edição está aberto (null = nenhuma).
+  var atividadeEmEdicao = null;
+
+  var FILTRO_DOCUMENTACAO = [
+    { valor: '', rotulo: 'Todas' },
+    { valor: 'completa', rotulo: 'Completa' },
+    { valor: 'pendente', rotulo: 'Pendente' },
+    { valor: 'incompleta', rotulo: 'Incompleta' }
+  ];
+
+  // Como cada campo obrigatório do cadastro aparece em "sem ...".
+  var ROTULO_CAMPO_FALTANDO = {
+    responsavel: 'responsável', local: 'local', pratica: 'prática CERNE'
+  };
+
+  /** Etiqueta da situação documental de uma atividade (já escapada). */
+  function etiquetaDocumentacao(sit, comNota) {
+    if (sit.situacao === 'completa') {
+      return '<span class="etiqueta verde">Completa</span>';
+    }
+    if (sit.situacao === 'pendente') {
+      return '<span class="etiqueta amarela">Pendente (' + sit.faltantes.length + ')</span>' +
+        (comNota && sit.campos_faltando.length
+          ? '<br><span class="pequeno suave">Cadastro incompleto</span>' : '');
+    }
+    return '<span class="etiqueta vermelha">Incompleta</span>';
+  }
+
+  /** "Cadastrada por X em ..." / "Editada por Y em ...", em texto suave.
+   *  Registros antigos, sem esses campos, não geram linha. */
+  function linhasAutoria(a) {
+    var saida = [];
+    if (a.criado_em) {
+      saida.push('Cadastrada' + (a.criado_por_nome ? ' por ' + esc(a.criado_por_nome) : '') +
+        ' em ' + dataHoraBR(a.criado_em));
+    }
+    if (a.atualizado_em) {
+      saida.push('Editada' + (a.atualizado_por_nome ? ' por ' + esc(a.atualizado_por_nome) : '') +
+        ' em ' + dataHoraBR(a.atualizado_em));
+    }
+    return saida.length
+      ? '<br><span class="pequeno suave">' + saida.join(' · ') + '</span>'
+      : '';
+  }
+
+  /** Detalhe das pendências de uma atividade (já escapado). Os botões de
+   *  dispensar e desfazer só aparecem para quem pode editar. */
+  function detalhePendencias(a, sit, somenteLeitura) {
+    if (!sit) return '';
+    var linhas = [];
+    var rotuloDoc = function (tipo) { return esc(Store.rotuloDe(Store.TIPOS_DOCUMENTO || [], tipo)); };
+
+    if (sit.faltantes.length) {
+      linhas.push('<p class="sem-margem"><strong>Faltam:</strong> ' +
+        sit.faltantes.map(function (tipo) {
+          return rotuloDoc(tipo) + (somenteLeitura ? '' :
+            ' <button type="button" class="botao secundario pequeno nao-imprimir" ' +
+            'data-dispensar-doc="' + esc(a.id) + '" data-tipo-doc="' + esc(tipo) + '">' +
+            'Dispensar</button>');
+        }).join(', ') + '</p>');
+    }
+    if (sit.campos_faltando.length) {
+      linhas.push('<p class="sem-margem"><strong>Cadastro incompleto:</strong> ' +
+        sit.campos_faltando.map(function (c) {
+          return 'sem ' + esc(ROTULO_CAMPO_FALTANDO[c] || c);
+        }).join(', ') + '</p>');
+    }
+    if (sit.dispensados.length) {
+      var dispensas = Array.isArray(a.docs_dispensados) ? a.docs_dispensados : [];
+      linhas.push('<p class="sem-margem"><strong>Dispensados:</strong> ' +
+        sit.dispensados.map(function (tipo) {
+          var d = dispensas.filter(function (x) { return x && x.tipo === tipo; })[0] || {};
+          return rotuloDoc(tipo) + ' (' + esc(d.motivo || 'sem motivo') + ')' +
+            (d.por_nome ? ' <span class="pequeno suave">— ' + esc(d.por_nome) + '</span>' : '') +
+            (somenteLeitura ? '' :
+              ' <button type="button" class="botao secundario pequeno nao-imprimir" ' +
+              'data-desfazer-dispensa="' + esc(a.id) + '" data-tipo-doc="' + esc(tipo) + '">' +
+              'Desfazer dispensa</button>');
+        }).join('; ') + '</p>');
+    }
+    if (!sit.esperados.length) {
+      linhas.push('<p class="pequeno suave sem-margem">Nenhum documento específico é ' +
+        'esperado para este tipo de atividade.</p>');
+    }
+    if (sit.situacao !== 'completa') {
+      linhas.push('<p class="sem-margem">Responsável pela complementação: <strong>' +
+        esc(a.responsavel_pendencia || a.responsavel || '—') + '</strong></p>');
+    }
+    return linhas.length
+      ? '<div class="pendencias-atividade">' + linhas.join('') + '</div>'
+      : '';
+  }
+
+  function atividadePorId(id) {
+    var lista = Store.estado().atividades || [];
+    for (var i = 0; i < lista.length; i++) {
+      if (lista[i].id === id) return lista[i];
+    }
+    return null;
+  }
+
+  /** Grava a edição aberta no formulário. Só os campos que mudaram vão para o
+   *  Store; se nada mudou, não grava. O protocolo nunca é enviado. */
+  function salvarEdicaoAtividade(form) {
+    if (!Store.podeEditar()) return;
+    var atual = atividadePorId(atividadeEmEdicao);
+    if (!atual) {
+      atividadeEmEdicao = null;
+      avisar('Esta atividade não existe mais.');
+      renderizar();
+      return;
+    }
+    var r = global.Regras.prepararEdicaoAtividade(atual, dadosDoForm(form));
+    if (r.erro) { avisar(r.erro); return; }
+    if (!r.mudou) { avisar('Nada foi alterado.'); return; }
+    Store.atualizarEm('atividades', atual.id, r.dados);
+    atividadeEmEdicao = null;
+    avisar('Atividade atualizada.');
+    renderizar();
+  }
+
+  /** Nome de quem está usando o sistema, quando há login (modo nuvem). */
+  function nomeDoUsuario() {
+    var u = Store.usuario && Store.usuario();
+    return u ? String(u.displayName || u.email || '') : '';
+  }
+
+  /** Dispensa um documento esperado, com motivo obrigatório. */
+  function dispensarDocumento(idAtividade, tipo) {
+    if (!Store.podeEditar()) return;
+    var atv = atividadePorId(idAtividade);
+    if (!atv) return;
+    var sit = Store.situacaoDocumentalDaAtividade(atv);
+    if (sit.faltantes.indexOf(tipo) === -1) return;
+
+    var rotulo = Store.rotuloDe(Store.TIPOS_DOCUMENTO || [], tipo);
+    var motivo = global.prompt(
+      'Por que "' + rotulo + '" não é necessário nesta atividade?\n' +
+      'Informe o motivo da dispensa (obrigatório).'
+    );
+    if (motivo === null || motivo === undefined) return; // cancelou
+    if (!String(motivo).trim()) {
+      avisar('Informe o motivo para dispensar o documento.');
+      return;
+    }
+    Store.atualizarEm('atividades', atv.id, {
+      docs_dispensados: global.Regras.comDispensa(
+        atv, tipo, motivo, nomeDoUsuario(), new Date().toISOString()
+      )
+    });
+    avisar('Documento dispensado.');
+    renderizar();
+  }
+
+  function desfazerDispensa(idAtividade, tipo) {
+    if (!Store.podeEditar()) return;
+    var atv = atividadePorId(idAtividade);
+    if (!atv) return;
+    Store.atualizarEm('atividades', atv.id, {
+      docs_dispensados: global.Regras.semDispensa(atv, tipo)
+    });
+    avisar('Dispensa desfeita.');
+    renderizar();
+  }
 
   Telas.atividades = function () {
     var lista = Store.estado().atividades || [];
     var somenteLeitura = !Store.podeEditar();
+
+    // Situação documental de cada atividade, calculada uma vez por desenho.
+    var situacoes = {};
+    lista.forEach(function (a) {
+      situacoes[a.id] = Store.situacaoDocumentalDaAtividade(a);
+    });
 
     var anosDisponiveis = {};
     lista.forEach(function (a) {
@@ -1970,6 +2163,8 @@
       if (filtroAtividades.tipo && a.tipo !== filtroAtividades.tipo) return false;
       if (filtroAtividades.ano &&
           String(a.data_realizacao || '').slice(0, 4) !== filtroAtividades.ano) return false;
+      if (filtroAtividades.documentacao &&
+          situacoes[a.id].situacao !== filtroAtividades.documentacao) return false;
       return true;
     }).sort(function (a, b) {
       return String(b.data_realizacao || '').localeCompare(String(a.data_realizacao || ''));
@@ -1991,28 +2186,115 @@
         '<td><strong>' + esc(a.titulo) + '</strong>' +
         (a.descricao ? '<br><span class="pequeno suave">' + esc(a.descricao) + '</span>' : '') +
         (vinc.length ? '<br><span class="pequeno suave">' + vinc.join(' · ') + '</span>' : '') +
+        linhasAutoria(a) +
         '</td>' +
         '<td>' + esc(Store.rotuloDe(Store.TIPOS_ATIVIDADE, a.tipo)) + '</td>' +
         '<td class="pequeno">' + esc(a.local || '—') + '</td>' +
         '<td class="pequeno">' + esc(a.responsavel || '—') + '</td>' +
         '<td>' + dataBR(a.data_realizacao) + '</td>' +
+        '<td class="pequeno">' + etiquetaDocumentacao(situacoes[a.id], true) + '</td>' +
         (somenteLeitura ? '' :
-          '<td class="numero nao-imprimir"><button type="button" class="botao secundario pequeno" ' +
+          '<td class="numero nao-imprimir">' +
+          '<button type="button" class="botao secundario pequeno" ' +
+          'data-editar-atividade="' + esc(a.id) + '">Editar</button> ' +
+          '<button type="button" class="botao secundario pequeno" ' +
           'data-remover-atividade="' + esc(a.id) + '">Remover</button></td>') +
         '</tr>'
       );
     }).join('');
 
-    var opcoesEmp = '<option value="">— nenhum —</option>' +
-      (Store.estado().empreendimentos || []).map(function (e) {
-        return '<option value="' + esc(e.id) + '">' + esc(e.nome) +
-          (e.codigo ? ' (' + esc(e.codigo) + ')' : '') + '</option>';
+    /** Opções de empreendimento. Se o registro aponta para um empreendimento
+     *  que não existe mais, a opção atual é mantida (para a edição não apagar
+     *  o vínculo sem querer). */
+    function opcoesEmpreendimento(selecionado) {
+      var emps = Store.estado().empreendimentos || [];
+      var achou = !selecionado;
+      var html = '<option value="">— nenhum —</option>' + emps.map(function (e) {
+        if (e.id === selecionado) achou = true;
+        return '<option value="' + esc(e.id) + '"' + (e.id === selecionado ? ' selected' : '') +
+          '>' + esc(e.nome) + (e.codigo ? ' (' + esc(e.codigo) + ')' : '') + '</option>';
       }).join('');
-    var opcoesPratica = '<option value="">— nenhuma —</option>' +
-      Store.praticas.map(function (i) {
-        return '<option value="' + esc(i.pratica.codigo) + '">' +
-          esc(i.pratica.codigo) + ' ' + esc(i.pratica.nome) + '</option>';
+      if (!achou) {
+        html += '<option value="' + esc(selecionado) + '" selected>' +
+          '(empreendimento removido)</option>';
+      }
+      return html;
+    }
+    function opcoesPraticaCerne(selecionado) {
+      var achou = !selecionado;
+      var html = '<option value="">— nenhuma —</option>' + Store.praticas.map(function (i) {
+        var cod = i.pratica.codigo;
+        if (cod === selecionado) achou = true;
+        return '<option value="' + esc(cod) + '"' + (cod === selecionado ? ' selected' : '') +
+          '>' + esc(cod) + ' ' + esc(i.pratica.nome) + '</option>';
       }).join('');
+      if (!achou) {
+        html += '<option value="' + esc(selecionado) + '" selected>' + esc(selecionado) + '</option>';
+      }
+      return html;
+    }
+    var opcoesEmp = opcoesEmpreendimento('');
+    var opcoesPratica = opcoesPraticaCerne('');
+
+    // Formulário de edição: só quando o perfil edita e a atividade ainda
+    // existe (outra pessoa pode tê-la removido enquanto o formulário estava
+    // aberto). O protocolo aparece como texto: identifica o registro e nunca
+    // muda, nem quando a data de realização passa para outro ano.
+    var emEdicao = null;
+    if (atividadeEmEdicao) {
+      emEdicao = lista.filter(function (a) { return a.id === atividadeEmEdicao; })[0] || null;
+      if (!emEdicao) atividadeEmEdicao = null;
+    }
+    var formEdicao = '';
+    if (emEdicao && !somenteLeitura) {
+      var ed = emEdicao;
+      formEdicao =
+        '<div class="cartao nao-imprimir" id="edicao-atividade">' +
+        '<h2>Editar atividade</h2>' +
+        '<form id="form-atividade-editar">' +
+        '<div class="campo"><label>Protocolo</label>' +
+        '<div>' + (ed.protocolo
+          ? '<span class="etiqueta azul">' + esc(ed.protocolo) + '</span>' : '—') + '</div>' +
+        '<p class="pequeno suave sem-margem">O protocolo identifica o registro e não muda ' +
+        'ao editar, mesmo que a data de realização seja de outro ano.</p></div>' +
+        '<div class="linha-campos tres">' +
+        '<div class="campo"><label>Título</label>' +
+        '<input type="text" name="titulo" required value="' + esc(ed.titulo) + '"></div>' +
+        '<div class="campo"><label>Tipo</label>' +
+        '<select name="tipo">' +
+        (Store.TIPOS_ATIVIDADE.some(function (t) { return t.valor === ed.tipo; })
+          ? '' : '<option value="" selected>— selecione —</option>') +
+        opcoes(Store.TIPOS_ATIVIDADE, ed.tipo) + '</select></div>' +
+        '<div class="campo"><label>Data de realização</label>' +
+        '<input type="date" name="data_realizacao" value="' + esc(ed.data_realizacao) + '"></div>' +
+        '</div>' +
+        '<div class="linha-campos tres">' +
+        '<div class="campo"><label>Local</label>' +
+        '<input type="text" name="local" value="' + esc(ed.local) + '"></div>' +
+        '<div class="campo"><label>Responsável</label>' +
+        '<input type="text" name="responsavel" value="' + esc(ed.responsavel) + '"></div>' +
+        '<div class="campo"><label>Programa (opcional)</label>' +
+        '<input type="text" name="programa" value="' + esc(ed.programa) + '"></div>' +
+        '</div>' +
+        '<div class="linha-campos">' +
+        '<div class="campo"><label>Prática CERNE (opcional)</label>' +
+        '<select name="pratica">' + opcoesPraticaCerne(ed.pratica || '') + '</select></div>' +
+        '<div class="campo"><label>Vincular a empreendimento (opcional)</label>' +
+        '<select name="empreendimento">' + opcoesEmpreendimento(ed.empreendimento || '') +
+        '</select></div>' +
+        '</div>' +
+        '<div class="campo"><label>Responsável pela complementação (opcional)</label>' +
+        '<input type="text" name="responsavel_pendencia" value="' +
+        esc(ed.responsavel_pendencia) + '" placeholder="quem completa a documentação; ' +
+        'se vazio, vale o responsável"></div>' +
+        '<div class="campo"><label>Descrição</label>' +
+        '<textarea name="descricao">' + esc(ed.descricao) + '</textarea></div>' +
+        '<div class="acoes">' +
+        '<button type="submit" class="botao">Salvar alterações</button>' +
+        '<button type="button" class="botao secundario" id="btn-atv-cancelar">Cancelar</button>' +
+        '</div>' +
+        '</form></div>';
+    }
 
     var form = somenteLeitura ? '' :
       '<details class="bloco nao-imprimir"><summary>+ Registrar atividade</summary>' +
@@ -2038,6 +2320,9 @@
       '<div class="campo"><label>Vincular a empreendimento (opcional)</label>' +
       '<select name="empreendimento">' + opcoesEmp + '</select></div>' +
       '</div>' +
+      '<div class="campo"><label>Responsável pela complementação (opcional)</label>' +
+      '<input type="text" name="responsavel_pendencia" placeholder="quem completa a ' +
+      'documentação; se vazio, vale o responsável"></div>' +
       '<div class="campo"><label>Descrição</label>' +
       '<textarea name="descricao" placeholder="o que foi feito, objetivos, resultados"></textarea></div>' +
       '<p class="pequeno suave sem-margem">O protocolo (ATV-AAAA-000) é gerado ' +
@@ -2056,20 +2341,34 @@
         var evsAtv = todasEvidencias.filter(function (e) {
           return e.atividade && e.atividade === a.id;
         });
+        var sitAtv = situacoes[a.id];
         var cabecalho =
           (a.protocolo ? '<span class="etiqueta azul">' + esc(a.protocolo) + '</span> ' : '') +
           '<strong>' + esc(a.titulo) + '</strong>' +
           ' <span class="etiqueta ' + (evsAtv.length ? 'verde' : 'cinza') + '">' +
-          evsAtv.length + ' documento' + (evsAtv.length === 1 ? '' : 's') + '</span>';
+          evsAtv.length + ' documento' + (evsAtv.length === 1 ? '' : 's') + '</span> ' +
+          etiquetaDocumentacao(sitAtv, false);
         var corpo;
         if (evsAtv.length) {
           corpo = '<ul>' + evsAtv.map(function (e) {
             var link = urlSegura(e.link);
             var anexo = e.arquivo && e.arquivo.url ? e.arquivo : null;
+            // Tipo do documento: mostrado quando informado; sem tipo, quem
+            // edita pode classificar (evidência sem tipo não satisfaz nenhum
+            // documento esperado).
+            var tipoDoc = e.tipo_documento
+              ? ' <span class="etiqueta cinza">' +
+                esc(Store.rotuloDe(Store.TIPOS_DOCUMENTO || [], e.tipo_documento)) + '</span>'
+              : (somenteLeitura
+                ? ' <span class="pequeno suave">tipo não informado</span>'
+                : ' <select class="pequeno nao-imprimir" aria-label="Classificar o documento" ' +
+                  'data-classificar-evidencia="' + esc(e.id) + '">' +
+                  '<option value="">Classificar documento…</option>' +
+                  opcoes(Store.TIPOS_DOCUMENTO || [], '') + '</select>');
             return (
               '<li>' +
               (e.protocolo ? '<span class="etiqueta azul">' + esc(e.protocolo) + '</span> ' : '') +
-              '<strong>' + esc(e.titulo) + '</strong>' +
+              '<strong>' + esc(e.titulo) + '</strong>' + tipoDoc +
               (anexo
                 ? ' · <a href="' + esc(urlSegura(anexo.url)) + '" target="_blank" ' +
                   'rel="noopener noreferrer" class="quebra">baixar arquivo</a>'
@@ -2088,13 +2387,16 @@
         }
         return (
           '<details class="bloco"' + (evsAtv.length ? ' open' : '') + '>' +
-          '<summary>' + cabecalho + '</summary>' + corpo + '</details>'
+          '<summary>' + cabecalho + '</summary>' +
+          detalhePendencias(a, sitAtv, somenteLeitura) + corpo + '</details>'
         );
       }).join('');
       blocoDocs =
         '<h2>Documentos por atividade</h2>' +
         '<p class="suave">Evidências (fotos, relatórios, listas de presença) vinculadas a ' +
-        'cada atividade. Vincule uma evidência a uma atividade na tela da prática.</p>' +
+        'cada atividade, com o que ainda falta documentar. Vincule uma evidência a uma ' +
+        'atividade na tela da prática e informe o tipo do documento. As pendências são ' +
+        'apenas informativas e não alteram a prontidão para a certificação.</p>' +
         '<div class="cartao">' + itensDocs + '</div>';
     }
 
@@ -2111,13 +2413,18 @@
       '<select id="f-atv-ano">' + opcoes(anosFiltro, filtroAtividades.ano) + '</select></div>' +
       '<div class="campo sem-margem"><label for="f-atv-tipo">Tipo</label>' +
       '<select id="f-atv-tipo">' + opcoes(tiposFiltro, filtroAtividades.tipo) + '</select></div>' +
+      '<div class="campo sem-margem"><label for="f-atv-doc">Documentação</label>' +
+      '<select id="f-atv-doc">' +
+      opcoes(FILTRO_DOCUMENTACAO, filtroAtividades.documentacao) + '</select></div>' +
       '</div></div>' +
+
+      formEdicao +
 
       '<div class="cartao">' + form +
       (linhas
         ? '<div class="tabela-rolagem"><table class="tabela"><thead><tr>' +
           '<th>Protocolo</th><th>Atividade</th><th>Tipo</th><th>Local</th>' +
-          '<th>Responsável</th><th>Realização</th>' +
+          '<th>Responsável</th><th>Realização</th><th>Documentação</th>' +
           (somenteLeitura ? '' : '<th class="numero nao-imprimir">Ações</th>') +
           '</tr></thead><tbody>' + linhas + '</tbody></table></div>'
         : '<div class="vazio">' +
@@ -2140,6 +2447,10 @@
     if (fTipo) fTipo.addEventListener('change', function () {
       filtroAtividades.tipo = fTipo.value; renderizar();
     });
+    var fDoc = doc.getElementById('f-atv-doc');
+    if (fDoc) fDoc.addEventListener('change', function () {
+      filtroAtividades.documentacao = fDoc.value; renderizar();
+    });
 
     var form = doc.getElementById('form-atividade');
     if (form) {
@@ -2156,12 +2467,82 @@
           responsavel: (d.responsavel || '').trim(),
           pratica: (d.pratica || '').trim(),
           empreendimento: (d.empreendimento || '').trim(),
-          programa: (d.programa || '').trim()
+          programa: (d.programa || '').trim(),
+          // Quem completa a documentação (opcional). Na exibição vale
+          // responsavel_pendencia || responsavel.
+          responsavel_pendencia: (d.responsavel_pendencia || '').trim()
         });
         avisar('Atividade registrada.');
         renderizar();
       });
     }
+
+    // --- edição --------------------------------------------------------
+    // Os manipuladores conferem o perfil de novo: esconder o botão na tela
+    // é conveniência, quem decide de verdade são as regras do servidor.
+
+    Array.prototype.forEach.call(
+      doc.querySelectorAll('[data-editar-atividade]'),
+      function (botao) {
+        botao.addEventListener('click', function () {
+          if (!Store.podeEditar()) return;
+          atividadeEmEdicao = botao.getAttribute('data-editar-atividade');
+          renderizar();
+        });
+      }
+    );
+
+    var btnCancelar = doc.getElementById('btn-atv-cancelar');
+    if (btnCancelar) btnCancelar.addEventListener('click', function () {
+      atividadeEmEdicao = null;
+      renderizar();
+    });
+
+    var formEdicao = doc.getElementById('form-atividade-editar');
+    if (formEdicao) {
+      formEdicao.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        salvarEdicaoAtividade(formEdicao);
+      });
+    }
+
+    // --- pendências documentais ---------------------------------------
+
+    Array.prototype.forEach.call(
+      doc.querySelectorAll('[data-dispensar-doc]'),
+      function (botao) {
+        botao.addEventListener('click', function () {
+          dispensarDocumento(
+            botao.getAttribute('data-dispensar-doc'),
+            botao.getAttribute('data-tipo-doc')
+          );
+        });
+      }
+    );
+    Array.prototype.forEach.call(
+      doc.querySelectorAll('[data-desfazer-dispensa]'),
+      function (botao) {
+        botao.addEventListener('click', function () {
+          desfazerDispensa(
+            botao.getAttribute('data-desfazer-dispensa'),
+            botao.getAttribute('data-tipo-doc')
+          );
+        });
+      }
+    );
+    Array.prototype.forEach.call(
+      doc.querySelectorAll('[data-classificar-evidencia]'),
+      function (campo) {
+        campo.addEventListener('change', function () {
+          if (!Store.podeEditar() || !campo.value) return;
+          Store.atualizarEm('evidencias', campo.getAttribute('data-classificar-evidencia'), {
+            tipo_documento: campo.value
+          });
+          avisar('Documento classificado.');
+          renderizar();
+        });
+      }
+    );
 
     Array.prototype.forEach.call(
       doc.querySelectorAll('[data-remover-atividade]'),
@@ -2180,6 +2561,37 @@
 
   // Filtro por período da tela de histórico (datas ISO, vazio = sem limite).
   var filtroHistorico = { de: '', ate: '' };
+
+  /** Valor de uma alteração em forma legível. Os valores são guardados como
+   *  vieram (texto curto); aqui tipos e vínculos viram nomes quando dá. */
+  function valorDaAlteracao(colecao, campo, valor) {
+    var v = valor === undefined || valor === null ? '' : String(valor);
+    if (!v) return '(vazio)';
+    if (colecao === 'atividades' && campo === 'tipo') {
+      return Store.rotuloDe(Store.TIPOS_ATIVIDADE, v);
+    }
+    if (campo === 'tipo_documento') {
+      return Store.rotuloDe(Store.TIPOS_DOCUMENTO || [], v);
+    }
+    if (campo === 'empreendimento' && Store.empreendimentoPorId) {
+      var emp = Store.empreendimentoPorId(v);
+      if (emp && emp.nome) return emp.nome;
+    }
+    return v;
+  }
+
+  /** Lista "campo: de → para" de um item do histórico (já escapada). Itens
+   *  antigos, sem `alteracoes`, devolvem string vazia. */
+  function alteracoesHtml(h) {
+    if (!h || !Array.isArray(h.alteracoes) || !h.alteracoes.length) return '';
+    var itens = h.alteracoes.filter(function (x) { return x && x.campo; })
+      .map(function (x) {
+        return '<li><strong>' + esc(global.Regras.rotuloDoCampo(x.campo)) + ':</strong> ' +
+          esc(valorDaAlteracao(h.colecao, x.campo, x.de)) + ' → ' +
+          esc(valorDaAlteracao(h.colecao, x.campo, x.para)) + '</li>';
+      }).join('');
+    return itens ? '<ul class="alteracoes">' + itens + '</ul>' : '';
+  }
 
   Telas.historico = function () {
     // Histórico depende de gravação central no modo nuvem. No modo local ele é
@@ -2218,7 +2630,7 @@
         '<td><span class="etiqueta ' + cor + '">' +
         esc(ROTULO_ACAO[h.acao] || h.acao) + '</span></td>' +
         '<td class="pequeno">' + esc(ROTULO_COL[h.colecao] || h.colecao) + '</td>' +
-        '<td>' + esc(h.resumo || '') + '</td>' +
+        '<td>' + esc(h.resumo || '') + alteracoesHtml(h) + '</td>' +
         '<td class="pequeno">' + esc(h.quem_nome || '') + '</td>' +
         '</tr>'
       );

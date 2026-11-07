@@ -951,6 +951,24 @@ details.bloco-adicionar[open] > summary {
 
 .etiqueta.ipe { background: var(--ipe-claro); color: var(--ipe-escuro); }
 
+/* Atividades: pendências documentais (informativas) e o que mudou no histórico. */
+.pendencias-atividade {
+  display: grid;
+  gap: .35rem;
+  margin: .5rem 0;
+  padding: .55rem .75rem;
+  background: var(--cinza-100);
+  border-radius: var(--raio);
+  font-size: .9rem;
+}
+.alteracoes {
+  list-style: disc;
+  margin: .3rem 0 0;
+  padding-left: 1.2rem;
+  font-size: .86rem;
+  color: var(--cinza-700);
+}
+
 /* Portão de entrada com a logo grande e o fundo da marca. */
 .portao {
   background: linear-gradient(160deg, var(--marinho) 0%, var(--marinho-escuro) 100%);

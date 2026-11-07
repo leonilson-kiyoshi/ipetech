@@ -120,11 +120,65 @@
     { valor: 'outra', rotulo: 'Outra ação' }
   ];
 
+  // Tipo do documento (evidência) vinculado a uma atividade. Campo OPCIONAL
+  // `tipo_documento` na evidência. Evidências antigas, sem o campo, seguem
+  // válidas, mas não contam para nenhum documento esperado da atividade.
+  var TIPOS_DOCUMENTO = [
+    { valor: 'lista_presenca', rotulo: 'Lista de presença' },
+    { valor: 'registro_fotografico', rotulo: 'Registro fotográfico' },
+    { valor: 'relatorio', rotulo: 'Relatório' },
+    { valor: 'ata', rotulo: 'Ata' },
+    { valor: 'outro', rotulo: 'Outro' }
+  ];
+
+  // Documentos esperados por tipo de atividade. É só INFORMATIVO: alimenta o
+  // controle de pendências das atividades e NÃO entra na regra de prontidão.
+  var DOCUMENTOS_ESPERADOS_POR_TIPO_ATIVIDADE = {
+    evento: ['lista_presenca', 'registro_fotografico', 'relatorio'],
+    capacitacao: ['lista_presenca', 'registro_fotografico', 'relatorio'],
+    reuniao: ['ata', 'lista_presenca'],
+    outra: []
+  };
+
+  // Campos do cadastro sem os quais a atividade é considerada "incompleta".
+  var CAMPOS_OBRIGATORIOS_ATIVIDADE = ['responsavel', 'local', 'pratica'];
+
+  // Campos que a tela de edição pode alterar. O protocolo NÃO está aqui de
+  // propósito: ele identifica o registro e nunca muda.
+  var CAMPOS_EDITAVEIS_ATIVIDADE = [
+    'titulo', 'tipo', 'data_realizacao', 'local', 'responsavel', 'programa',
+    'pratica', 'empreendimento', 'descricao', 'responsavel_pendencia'
+  ];
+
+  // Nomes amigáveis dos campos, para mostrar o que mudou no histórico. Campo
+  // desconhecido aparece com o próprio nome.
+  var ROTULOS_CAMPOS = {
+    titulo: 'Título', tipo: 'Tipo', descricao: 'Descrição',
+    data_realizacao: 'Data de realização', local: 'Local',
+    responsavel: 'Responsável', programa: 'Programa', pratica: 'Prática CERNE',
+    empreendimento: 'Empreendimento',
+    responsavel_pendencia: 'Responsável pela complementação',
+    docs_dispensados: 'Documentos dispensados',
+    tipo_documento: 'Tipo do documento', protocolo: 'Protocolo',
+    atividade: 'Atividade', nome: 'Nome', setor: 'Setor', estagio: 'Estágio',
+    situacao: 'Situação', data_entrada: 'Data de entrada',
+    data_graduacao: 'Data de graduação', data_referencia: 'Data de referência',
+    link: 'Link', requisito: 'Requisito', prazo: 'Prazo',
+    observacoes: 'Observações', observacao: 'Observação',
+    avaliacoes: 'Avaliações', documentos: 'Documentos'
+  };
+
   function rotuloDe(lista, valor) {
     for (var i = 0; i < lista.length; i++) {
       if (lista[i].valor === valor) return lista[i].rotulo;
     }
     return valor || '';
+  }
+
+  function rotuloDoCampo(campo) {
+    return Object.prototype.hasOwnProperty.call(ROTULOS_CAMPOS, campo)
+      ? ROTULOS_CAMPOS[campo]
+      : String(campo === undefined || campo === null ? '' : campo);
   }
 
   /* -------------------------------------------------------- formato do estado */
@@ -387,7 +441,19 @@
     var planosAbertos = (estado.planos || []).filter(function (p) {
       return p.situacao === 'aberto' || p.situacao === 'em_andamento';
     }).length;
+    // Pendências documentais das atividades: apenas informativo, não entra na
+    // regra de prontidão.
+    var atvSemDocs = 0;
+    var atvIncompletas = 0;
+    (estado.atividades || []).forEach(function (a) {
+      var s = situacaoDocumentalDaAtividade(estado, a).situacao;
+      if (s === 'pendente') atvSemDocs += 1;
+      else if (s === 'incompleta') atvIncompletas += 1;
+    });
     return {
+      atividades_pendentes: atvSemDocs + atvIncompletas,
+      atividades_com_documentos_faltando: atvSemDocs,
+      atividades_incompletas: atvIncompletas,
       evidencias: (estado.evidencias || []).length,
       medicoes: (estado.medicoes || []).length,
       revisoes: (estado.revisoes || []).length,
@@ -471,6 +537,221 @@
     return 'ATV-' + ano + '-' + String(maior + 1).padStart(3, '0');
   }
 
+  /* ============================================ atividades: pendências
+
+     Controle INFORMATIVO da documentação das atividades. Nada aqui entra em
+     faltasDaPratica/calcularProntidao/praticaCompleta: pendência de atividade
+     não afeta o radar nem a prontidão para a certificação.
+     ====================================================================== */
+
+  function temPropriedade(objeto, chave) {
+    return Object.prototype.hasOwnProperty.call(objeto, chave);
+  }
+
+  function campoVazio(valor) {
+    return valor === undefined || valor === null || String(valor).trim() === '';
+  }
+
+  /** Situação documental de uma atividade.
+   *
+   *    esperados  documentos previstos para o tipo da atividade;
+   *    atendidos  esperados cobertos por ao menos uma evidência vinculada
+   *               (e.atividade === a.id) com e.tipo_documento igual ao tipo;
+   *    dispensados esperados dispensados com justificativa e ainda não
+   *               atendidos por evidência;
+   *    faltantes  esperados que não estão atendidos nem dispensados;
+   *    campos_faltando  campos obrigatórios do cadastro sem valor.
+   *
+   *  situacao: 'pendente' (há faltantes), 'incompleta' (sem faltantes, mas
+   *  faltam campos) ou 'completa'. Tolera atividade antiga: sem tipo, sem
+   *  `docs_dispensados` e sem os campos novos. Evidência sem tipo_documento
+   *  não satisfaz nenhum documento esperado. */
+  function situacaoDocumentalDaAtividade(estado, atividade) {
+    var atv = atividade || {};
+    var esperados = temPropriedade(DOCUMENTOS_ESPERADOS_POR_TIPO_ATIVIDADE, atv.tipo)
+      ? DOCUMENTOS_ESPERADOS_POR_TIPO_ATIVIDADE[atv.tipo].slice()
+      : [];
+
+    var cobertos = {};
+    if (atv.id) {
+      ((estado && estado.evidencias) || []).forEach(function (e) {
+        if (e && e.atividade === atv.id && e.tipo_documento) {
+          cobertos[e.tipo_documento] = true;
+        }
+      });
+    }
+
+    var dispensa = {};
+    (Array.isArray(atv.docs_dispensados) ? atv.docs_dispensados : []).forEach(
+      function (d) {
+        if (d && d.tipo) dispensa[d.tipo] = true;
+      }
+    );
+
+    var atendidos = [];
+    var dispensados = [];
+    var faltantes = [];
+    esperados.forEach(function (tipo) {
+      if (temPropriedade(cobertos, tipo)) atendidos.push(tipo);
+      else if (temPropriedade(dispensa, tipo)) dispensados.push(tipo);
+      else faltantes.push(tipo);
+    });
+
+    var camposFaltando = CAMPOS_OBRIGATORIOS_ATIVIDADE.filter(function (campo) {
+      return campoVazio(atv[campo]);
+    });
+
+    return {
+      situacao: faltantes.length ? 'pendente'
+        : camposFaltando.length ? 'incompleta' : 'completa',
+      faltantes: faltantes,
+      dispensados: dispensados,
+      campos_faltando: camposFaltando,
+      esperados: esperados,
+      atendidos: atendidos
+    };
+  }
+
+  /** Lista de dispensas após dispensar `tipo` com justificativa. Devolve uma
+   *  lista NOVA (a atividade não é alterada) e sem valores undefined, pronta
+   *  para gravar em `docs_dispensados`. Dispensar de novo o mesmo tipo troca a
+   *  justificativa em vez de duplicar. */
+  function comDispensa(atividade, tipo, motivo, porNome, quandoIso) {
+    var atuais = atividade && Array.isArray(atividade.docs_dispensados)
+      ? atividade.docs_dispensados : [];
+    var lista = atuais.filter(function (d) { return d && d.tipo !== tipo; })
+      .map(function (d) {
+        return {
+          tipo: String(d.tipo || ''),
+          motivo: String(d.motivo || ''),
+          por_nome: String(d.por_nome || ''),
+          em: String(d.em || '')
+        };
+      });
+    lista.push({
+      tipo: String(tipo || ''),
+      motivo: String(motivo || '').trim(),
+      por_nome: String(porNome || ''),
+      em: String(quandoIso || new Date().toISOString())
+    });
+    return lista;
+  }
+
+  /** Lista de dispensas após desfazer a dispensa de `tipo`. */
+  function semDispensa(atividade, tipo) {
+    var atuais = atividade && Array.isArray(atividade.docs_dispensados)
+      ? atividade.docs_dispensados : [];
+    return atuais.filter(function (d) { return d && d.tipo !== tipo; })
+      .map(function (d) {
+        return {
+          tipo: String(d.tipo || ''),
+          motivo: String(d.motivo || ''),
+          por_nome: String(d.por_nome || ''),
+          em: String(d.em || '')
+        };
+      });
+  }
+
+  /* ================================================ edição e histórico
+
+     Funções puras usadas pelos dois modos de armazenamento. O histórico só
+     existe na nuvem, mas a lógica de "o que mudou" mora aqui para ser testada
+     sem depender do Firestore.
+     ====================================================================== */
+
+  var LIMITE_ALTERACOES = 12;
+  var LIMITE_TEXTO = 80;
+
+  /** Valor reduzido a texto curto para o histórico: no máximo 80 caracteres,
+   *  nunca undefined; listas e objetos viram um resumo ("2 item(ns)"). */
+  function textoCurto(valor) {
+    if (valor === undefined || valor === null) return '';
+    if (typeof valor === 'boolean') return valor ? 'sim' : 'não';
+    if (Array.isArray(valor)) return valor.length + ' item(ns)';
+    if (typeof valor === 'object') {
+      if (typeof valor.toDate === 'function') {
+        try { return valor.toDate().toISOString(); } catch (e) { return ''; }
+      }
+      if (valor instanceof Date) {
+        return isNaN(valor.getTime()) ? '' : valor.toISOString();
+      }
+      return Object.keys(valor).length + ' campo(s)';
+    }
+    var texto = String(valor).replace(/\s+/g, ' ').trim();
+    return texto.length > LIMITE_TEXTO
+      ? texto.slice(0, LIMITE_TEXTO - 1) + '…'
+      : texto;
+  }
+
+  /** Forma comparável de um valor: ausente (undefined/null) equivale a ''. */
+  function valorComparavel(valor) {
+    if (valor === undefined || valor === null) return '';
+    if (typeof valor === 'object') {
+      try { return JSON.stringify(valor); } catch (e) { return String(valor); }
+    }
+    return String(valor);
+  }
+
+  /** O que mudou entre dois registros: [{campo, de, para}], só dos campos cujo
+   *  valor mudou, com `de`/`para` em texto curto. Campos atualizado_* e `id`
+   *  são ignorados. Sem `campos`, compara as chaves presentes em `depois`
+   *  (atualização parcial). Limitada a 12 mudanças. */
+  function diferencasDeRegistro(antes, depois, campos) {
+    var a = antes && typeof antes === 'object' ? antes : {};
+    var d = depois && typeof depois === 'object' ? depois : {};
+    var lista = Array.isArray(campos) ? campos : Object.keys(d);
+    var vistos = {};
+    var saida = [];
+
+    for (var i = 0; i < lista.length && saida.length < LIMITE_ALTERACOES; i++) {
+      var campo = lista[i];
+      if (typeof campo !== 'string' || !campo || temPropriedade(vistos, campo)) continue;
+      vistos[campo] = true;
+      if (campo === 'id' || /^atualizado_/.test(campo)) continue;
+      if (!temPropriedade(d, campo) || d[campo] === undefined) continue;
+
+      var valorAntes = temPropriedade(a, campo) ? a[campo] : undefined;
+      if (valorComparavel(valorAntes) === valorComparavel(d[campo])) continue;
+
+      saida.push({
+        campo: campo,
+        de: textoCurto(valorAntes),
+        para: textoCurto(d[campo])
+      });
+    }
+    return saida;
+  }
+
+  /** Prepara a gravação da edição de uma atividade.
+   *
+   *  Recebe a atividade atual e os valores do formulário; devolve
+   *    { erro, dados, mudou }
+   *  onde `dados` contém SOMENTE os campos que realmente mudaram (entre os
+   *  editáveis). O protocolo nunca entra: não é editável e não é recalculado,
+   *  mesmo que a data de realização passe para outro ano. O título não pode
+   *  ficar vazio e o tipo só é aceito se for um dos tipos válidos. */
+  function prepararEdicaoAtividade(atual, formulario) {
+    var atv = atual || {};
+    var f = formulario || {};
+    var dados = {};
+
+    CAMPOS_EDITAVEIS_ATIVIDADE.forEach(function (campo) {
+      if (!temPropriedade(f, campo) || f[campo] === undefined || f[campo] === null) return;
+      var novo = String(f[campo]).trim();
+
+      if (campo === 'tipo') {
+        var valido = TIPOS_ATIVIDADE.some(function (t) { return t.valor === novo; });
+        if (!valido) return; // mantém o tipo atual
+      }
+      if (valorComparavel(atv[campo]) !== novo) dados[campo] = novo;
+    });
+
+    if (temPropriedade(f, 'titulo') && campoVazio(f.titulo)) {
+      return { erro: 'Informe o título da atividade.', dados: {}, mudou: false };
+    }
+    return { erro: '', dados: dados, mudou: Object.keys(dados).length > 0 };
+  }
+
   /* ===================================================== índice de anexos
 
      Para o backup (Fase 2): os arquivos em si ficam no Firebase Storage, não
@@ -519,7 +800,12 @@
     EIXOS: EIXOS,
     PAPEIS: PAPEIS,
     TIPOS_ATIVIDADE: TIPOS_ATIVIDADE,
+    TIPOS_DOCUMENTO: TIPOS_DOCUMENTO,
+    DOCUMENTOS_ESPERADOS_POR_TIPO_ATIVIDADE: DOCUMENTOS_ESPERADOS_POR_TIPO_ATIVIDADE,
+    CAMPOS_OBRIGATORIOS_ATIVIDADE: CAMPOS_OBRIGATORIOS_ATIVIDADE,
+    CAMPOS_EDITAVEIS_ATIVIDADE: CAMPOS_EDITAVEIS_ATIVIDADE,
     rotuloDe: rotuloDe,
+    rotuloDoCampo: rotuloDoCampo,
 
     estadoInicial: estadoInicial,
     normalizar: normalizar,
@@ -537,6 +823,13 @@
     proximoCodigoEmpreendimento: proximoCodigoEmpreendimento,
     proximoProtocoloEvidencia: proximoProtocoloEvidencia,
     proximoProtocoloAtividade: proximoProtocoloAtividade,
+
+    situacaoDocumentalDaAtividade: situacaoDocumentalDaAtividade,
+    comDispensa: comDispensa,
+    semDispensa: semDispensa,
+    diferencasDeRegistro: diferencasDeRegistro,
+    prepararEdicaoAtividade: prepararEdicaoAtividade,
+
     indiceDeAnexos: indiceDeAnexos
   };
 })(window);

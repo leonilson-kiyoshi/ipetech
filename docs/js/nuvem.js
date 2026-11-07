@@ -620,8 +620,27 @@ function criarEm(lista, registro) {
 
 function atualizarEm(lista, id, dados) {
   const alvo = (estado[lista] || []).filter((r) => r.id === id)[0];
-  updateDoc(doc(db, lista, id), dados)
-    .then(() => registrarHistorico(lista, id, 'editar', resumoHistorico(lista, alvo || dados)))
+
+  // O que mudou, calculado AGORA contra o registro espelhado em memória, antes
+  // de a gravação (e o onSnapshot que vem junto) trocar o espelho. Sem o
+  // registro anterior não há como comparar, então não se grava `alteracoes`.
+  const alteracoes = alvo ? Regras.diferencasDeRegistro(alvo, dados) : [];
+
+  // Autoria da edição de atividades (aditivo). Só a coleção `atividades` ganha
+  // estes campos; as demais seguem gravando exatamente o que foi pedido.
+  let gravar = dados;
+  if (lista === 'atividades') {
+    gravar = Object.assign({}, dados, {
+      atualizado_em: serverTimestamp(),
+      atualizado_por: usuario ? usuario.uid : null,
+      atualizado_por_nome: usuario ? (usuario.displayName || usuario.email || '') : ''
+    });
+  }
+
+  updateDoc(doc(db, lista, id), gravar)
+    .then(() => registrarHistorico(
+      lista, id, 'editar', resumoHistorico(lista, alvo || dados), alteracoes
+    ))
     .catch((e) => tratarErro('atualizar ' + lista, e));
   return dados;
 }
@@ -667,9 +686,9 @@ function resumoHistorico(lista, registro) {
   );
 }
 
-function registrarHistorico(colecao, registroId, acao, resumo) {
+function registrarHistorico(colecao, registroId, acao, resumo, alteracoes) {
   if (!usuario) return;
-  addDoc(collection(db, 'historico'), {
+  const entrada = {
     colecao: colecao,
     registro_id: registroId || '',
     acao: acao,
@@ -677,7 +696,13 @@ function registrarHistorico(colecao, registroId, acao, resumo) {
     quando: serverTimestamp(),
     quem: usuario.uid,
     quem_nome: usuario.displayName || usuario.email || ''
-  }).catch((e) => {
+  };
+  // Campo aditivo: só existe quando houve diferenças. Itens antigos do
+  // histórico não têm `alteracoes` e seguem válidos.
+  if (Array.isArray(alteracoes) && alteracoes.length) {
+    entrada.alteracoes = alteracoes;
+  }
+  addDoc(collection(db, 'historico'), entrada).catch((e) => {
     console.warn(
       'Não foi possível registrar no histórico (as regras do /historico ' +
       'já foram publicadas?).', e
@@ -860,6 +885,7 @@ function publicarStore() {
     EIXOS: Regras.EIXOS,
     PAPEIS: Regras.PAPEIS,
     TIPOS_ATIVIDADE: Regras.TIPOS_ATIVIDADE,
+    TIPOS_DOCUMENTO: Regras.TIPOS_DOCUMENTO,
     rotuloDe: Regras.rotuloDe,
 
     // ciclo de vida
@@ -903,6 +929,11 @@ function publicarStore() {
     },
     calcularProntidao: function () { return Regras.calcularProntidao(estado); },
     resumo: function () { return Regras.resumo(estado); },
+
+    // pendências documentais das atividades (informativo; fora da prontidão)
+    situacaoDocumentalDaAtividade: function (atividade) {
+      return Regras.situacaoDocumentalDaAtividade(estado, atividade);
+    },
 
     // backup: exportar continua valendo; importar em massa não é oferecido na
     // nuvem de propósito, para não sobrescrever o trabalho de outra pessoa.

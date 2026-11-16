@@ -1454,6 +1454,649 @@ function esperarPromessas() {
   Store.estado().historico = [];
   delete Store.naNuvem;
 
+  /* -------------------------------------------------------------------------
+     Vários arquivos por evidência e por documento de empreendimento
+
+     Os arquivos sobem um por vez e viram UM registro (`arquivos` com todos,
+     `arquivo` com o primeiro). Se um falhar, nada é registrado e os já
+     enviados são apagados. Registros antigos (só `arquivo`) seguem iguais.
+
+     O armazenamento é simulado: Store.enviarArquivo & cia. gravam cada
+     chamada, e o formulário falso guarda botão, barra e lista de escolhidos.
+  ------------------------------------------------------------------------- */
+
+  /** Espera (em ciclos do laço de eventos) até a condição valer. */
+  async function aguardar(condicao) {
+    for (let i = 0; i < 300 && !condicao(); i++) await esperarPromessas();
+    return condicao();
+  }
+
+  const arqFalso = (nome, tamanho) => ({ name: nome, size: tamanho || 2048, type: 'application/pdf' });
+
+  // Armazenamento simulado (o modo nuvem publica estas funções no Store).
+  const envios = [];
+  const removidosDoBucket = [];
+  let ativos = 0;
+  let maxAtivos = 0;
+  let formAtual = null;
+  let falharNoEnvio = -1; // índice (0-based) do envio que deve falhar; -1 = nenhum
+  const alertas = [];
+  const alertOriginal = janela.alert;
+  janela.alert = (m) => { alertas.push(String(m)); };
+
+  function simularEnvio(tipo) {
+    return function (alvo, data, arquivo, aoProgresso, indice) {
+      const chamada = {
+        tipo: tipo, alvo: alvo, data: data, arquivo: arquivo, indice: indice,
+        botaoTravado: formAtual.fake.botao.disabled,
+        rotuloBotao: formAtual.fake.botao.textContent,
+        textoAntes: formAtual.fake.texto.textContent
+      };
+      envios.push(chamada);
+      ativos++;
+      maxAtivos = Math.max(maxAtivos, ativos);
+      return new Promise((resolve, reject) => {
+        setTimeout(() => {
+          aoProgresso(50);
+          chamada.texto50 = formAtual.fake.texto.textContent;
+          chamada.largura50 = formAtual.fake.preenchimento.style.width;
+          setTimeout(() => {
+            ativos--;
+            if (envios.indexOf(chamada) === falharNoEnvio) {
+              reject(new Error('rede caiu em ' + arquivo.name));
+              return;
+            }
+            const nomeNoBucket = 'm-' + (indice + 1) + '-' + arquivo.name;
+            const base = {
+              url: 'https://armazem.test/' + nomeNoBucket,
+              nome: arquivo.name, tamanho: arquivo.size, tipo: arquivo.type
+            };
+            resolve(tipo === 'evidencia'
+              ? Object.assign({ caminho: 'evidencias/CERNE1/1.1.1/2026/' + nomeNoBucket }, base)
+              : Object.assign({ path: 'empreendimentos/' + alvo + '/2026/' + nomeNoBucket }, base));
+          }, 0);
+        }, 0);
+      });
+    };
+  }
+
+  function instalarArmazenamentoFalso() {
+    Store.EXTENSOES_ACEITAS = ['.pdf', '.jpg'];
+    Store.conferirArquivo = (arq) => {
+      if (/\.exe$/.test(arq.name)) return 'Tipo de arquivo não aceito (.exe).';
+      if (arq.size > 20 * 1024 * 1024) return 'O arquivo tem 25.0 MB e o limite é 20 MB.';
+      return null;
+    };
+    Store.enviarArquivo = simularEnvio('evidencia');
+    Store.enviarArquivoEmpreendimento = simularEnvio('empreendimento');
+    Store.removerArquivo = (c) => { removidosDoBucket.push(c); return Promise.resolve(); };
+  }
+  function removerArmazenamentoFalso() {
+    delete Store.EXTENSOES_ACEITAS;
+    delete Store.conferirArquivo;
+    delete Store.enviarArquivo;
+    delete Store.enviarArquivoEmpreendimento;
+    delete Store.removerArquivo;
+  }
+  function zerarRegistros() {
+    envios.length = 0; removidosDoBucket.length = 0; alertas.length = 0;
+    ativos = 0; maxAtivos = 0; falharNoEnvio = -1;
+  }
+
+  /** Formulário com campo de arquivo, botão, barra de progresso e lista de escolhidos. */
+  function formularioDeAnexos(atributos, valores, arquivos, rotuloBotao, elementoReal) {
+    const f = elementoReal || botaoFalso(atributos);
+    const botao = { disabled: false, textContent: rotuloBotao };
+    const preenchimento = { style: {} };
+    const texto = { textContent: '' };
+    const barra = {
+      hidden: true,
+      querySelector: (s) => (s === '.envio-trilha > span' ? preenchimento : s === '.envio-texto' ? texto : null)
+    };
+    const lista = { innerHTML: '' };
+    f.querySelector = (s) => (s === 'button[type="submit"]' ? botao
+      : s === '.envio-barra' ? barra : s === '.arquivos-escolhidos' ? lista : null);
+    f.elements = Object.keys(valores).map((nome) => ({ name: nome, value: valores[nome] }))
+      .concat([{ name: 'arquivo', type: 'file', files: arquivos }]);
+    f.fake = { botao, preenchimento, texto, barra, lista };
+    return f;
+  }
+
+  const evidenciasDe = (titulo) => Store.estado().evidencias.filter((x) => x.titulo === titulo);
+  const contaDe = (html, trecho) => html.split(trecho).length - 1;
+
+  console.log('\n27) Anexar vários arquivos: campos com `multiple`');
+
+  Store.limpar();
+  html = renderizarRota('#/pratica/1.1.1');
+  verificar('(a) sem armazenamento (modo local) nenhum campo de arquivo aparece',
+    html.indexOf('type="file"') === -1);
+
+  instalarArmazenamentoFalso();
+  html = renderizarRota('#/pratica/1.1.1');
+  const camposPratica = html.match(/<input type="file"[^>]*>/g) || [];
+  const nRequisitos = (praticaTeste.requisitos || []).length;
+  verificar('(a) tela da prática: um campo por requisito + o da evidência própria',
+    camposPratica.length === nRequisitos + 1, camposPratica.length + ' vs ' + (nRequisitos + 1));
+  verificar('(a) TODOS os campos da prática têm `multiple`',
+    camposPratica.length > 0 && camposPratica.every((c) => / multiple[ >]/.test(c)), camposPratica[0]);
+  verificar('(a) o `accept` continua nos campos',
+    camposPratica.every((c) => c.indexOf('accept=".pdf,.jpg"') !== -1));
+  verificar('(a) texto de ajuda informa o máximo de 10 arquivos de até 20 MB',
+    contaDe(html, 'Você pode selecionar vários arquivos (até 10, cada um com até 20 MB).') === nRequisitos + 1);
+  verificar('(a) cada campo tem a área da lista de escolhidos e a barra de progresso',
+    contaDe(html, 'class="arquivos-escolhidos"') === nRequisitos + 1 &&
+    contaDe(html, 'class="envio-barra"') === nRequisitos + 1);
+
+  Store.criarEm('empreendimentos', {
+    nome: 'Empresa Anexos', setor: 'Software', estagio: 'pre_incubado', situacao: 'ativo'
+  });
+  const empAnexos = Store.estado().empreendimentos[0];
+  html = renderizarRota('#/empreendimento/' + empAnexos.id);
+  const camposEmp = html.match(/<input type="file"[^>]*>/g) || [];
+  verificar('(a) o formulário de documento do empreendimento tem `multiple`',
+    camposEmp.length === 1 && / multiple[ >]/.test(camposEmp[0]) &&
+    camposEmp[0].indexOf('accept=".pdf,.jpg"') !== -1, camposEmp.join(' | '));
+
+  html = renderizarRota('#/dados');
+  const camposDados = html.match(/<input type="file"[^>]*>/g) || [];
+  verificar('(a) a importação de backup continua sendo de 1 arquivo (sem `multiple`)',
+    html.indexOf('id="arq-importar"') !== -1 && camposDados.length === 1 &&
+    camposDados[0].indexOf('arq-importar') !== -1 && camposDados[0].indexOf('multiple') === -1,
+    camposDados.join(' | '));
+
+  console.log('\n28) Lista dos arquivos escolhidos (evento change)');
+
+  const formLista = formularioDeAnexos({ 'data-form-evidencia': reqObrigatorio.id },
+    { titulo: 'x' }, [], 'Registrar evidência');
+  simularElementos({ '[data-form-evidencia]': [formLista] });
+  renderizarRota('#/pratica/1.1.1');
+  verificar('o formulário escuta o `change` do campo de arquivo', typeof formLista.ao_change === 'function');
+  formLista.ao_change({ target: { type: 'file', files: [arqFalso('ata.pdf', 2048), arqFalso('foto <b>1</b>.jpg', 5 * 1024 * 1024)] } });
+  verificar('mostra nome e tamanho de cada arquivo escolhido',
+    formLista.fake.lista.innerHTML.indexOf('ata.pdf') !== -1 &&
+    formLista.fake.lista.innerHTML.indexOf('(2 KB)') !== -1 &&
+    formLista.fake.lista.innerHTML.indexOf('(5.0 MB)') !== -1 &&
+    formLista.fake.lista.innerHTML.indexOf('2 arquivos escolhidos') !== -1,
+    formLista.fake.lista.innerHTML);
+  verificar('o nome do arquivo é escapado',
+    formLista.fake.lista.innerHTML.indexOf('<b>1</b>') === -1 &&
+    formLista.fake.lista.innerHTML.indexOf('&lt;b&gt;1&lt;/b&gt;') !== -1);
+  verificar('dentro do limite não há aviso', formLista.fake.lista.innerHTML.indexOf('máximo') === -1);
+  formLista.ao_change({ target: { type: 'file', files: Array.from({ length: 11 }, (_, i) => arqFalso('a' + i + '.pdf')) } });
+  verificar('passou de 10: avisa o máximo', formLista.fake.lista.innerHTML.indexOf('o máximo é 10') !== -1 &&
+    formLista.fake.lista.innerHTML.indexOf('11 arquivos escolhidos') !== -1);
+  formLista.ao_change({ target: { type: 'file', files: [] } });
+  verificar('sem arquivos a lista é esvaziada', formLista.fake.lista.innerHTML === '');
+  formLista.fake.lista.innerHTML = 'intacto';
+  formLista.ao_change({ target: { type: 'text', value: 'x' } });
+  verificar('mudança em campo que não é de arquivo é ignorada', formLista.fake.lista.innerHTML === 'intacto');
+
+  console.log('\n29) Enviar 3 arquivos: um por vez, UM registro');
+
+  Store.limpar();
+  zerarRegistros();
+  const tresArquivos = [arqFalso('ata.pdf', 1000), arqFalso('lista.pdf', 2000), arqFalso('foto.jpg', 3000)];
+  const formReq = formularioDeAnexos({ 'data-form-evidencia': reqObrigatorio.id }, {
+    titulo: 'Tres anexos', data_referencia: '2026-05-10', link: '', responsavel: 'Ana', descricao: 'obs'
+  }, tresArquivos, 'Registrar evidência');
+  formAtual = formReq;
+  simularElementos({ '[data-form-evidencia]': [formReq] });
+  renderizarRota('#/pratica/1.1.1');
+  conteudo.innerHTML = 'MARCADOR';
+  const criarOriginal = Store.criarEm;
+  const criacoes = [];
+  Store.criarEm = function (lista, registro) {
+    criacoes.push({ lista: lista, registro: registro });
+    return criarOriginal.apply(Store, arguments);
+  };
+
+  formReq.ao_submit(evento);
+  verificar('o botão trava e o texto muda assim que o envio começa',
+    formReq.fake.botao.disabled === true && formReq.fake.botao.textContent === 'Enviando arquivos...');
+  verificar('nada é gravado antes de todos subirem', evidenciasDe('Tres anexos').length === 0);
+  await aguardar(() => evidenciasDe('Tres anexos').length > 0);
+
+  verificar('(b) Store.enviarArquivo foi chamado 3 vezes', envios.length === 3, envios.length);
+  verificar('(b) um de cada vez, nunca em paralelo', maxAtivos === 1, maxAtivos);
+  verificar('(b) na ordem escolhida',
+    envios.map((x) => x.arquivo.name).join(',') === 'ata.pdf,lista.pdf,foto.jpg');
+  verificar('(b) cada chamada leva prática, data e o índice do arquivo no lote',
+    envios.every((x, i) => x.alvo === '1.1.1' && x.data === '2026-05-10' && x.indice === i));
+  verificar('(b) o botão fica travado durante todos os envios',
+    envios.every((x) => x.botaoTravado === true && x.rotuloBotao === 'Enviando arquivos...'));
+  verificar('(b) texto geral: "Enviando arquivo N de 3…"',
+    envios[0].textoAntes.indexOf('Enviando arquivo 1 de 3… 0%') === 0 &&
+    envios[1].textoAntes.indexOf('Enviando arquivo 2 de 3… 33%') === 0 &&
+    envios[2].textoAntes.indexOf('Enviando arquivo 3 de 3… 67%') === 0,
+    envios.map((x) => x.textoAntes).join(' | '));
+  verificar('(b) a barra é geral: (concluídos + % do atual) / total',
+    envios[0].largura50 === '17%' && envios[1].largura50 === '50%' && envios[2].largura50 === '83%',
+    envios.map((x) => x.largura50).join(' | '));
+  verificar('(b) termina em 100%', formReq.fake.preenchimento.style.width === '100%');
+
+  const criadasEv = criacoes.filter((c) => c.lista === 'evidencias');
+  verificar('(b) Store.criarEm foi chamado UMA vez (um registro por envio)', criadasEv.length === 1, criadasEv.length);
+  const evTres = evidenciasDe('Tres anexos')[0];
+  verificar('(b) a evidência tem arquivos.length === 3',
+    !!evTres && Array.isArray(evTres.arquivos) && evTres.arquivos.length === 3);
+  verificar('(b) `arquivo` é o primeiro de `arquivos`',
+    !!evTres && JSON.stringify(evTres.arquivo) === JSON.stringify(evTres.arquivos[0]) &&
+    evTres.arquivo.nome === 'ata.pdf');
+  verificar('(b) os anexos guardam url, nome, caminho, tamanho e tipo, na ordem',
+    !!evTres && evTres.arquivos.map((a) => a.nome).join(',') === 'ata.pdf,lista.pdf,foto.jpg' &&
+    evTres.arquivos.every((a) => a.url && a.caminho && a.tamanho && a.tipo));
+  verificar('(b) os caminhos são distintos', !!evTres && new Set(evTres.arquivos.map((a) => a.caminho)).size === 3);
+  verificar('(b) o registro não tem undefined e tem protocolo',
+    !!evTres && semUndefined(criadasEv[0].registro) && /^[A-Z]+-\d{4}-\d+$/.test(evTres.protocolo || ''), evTres && evTres.protocolo);
+  verificar('(b) continua sendo evidência do requisito (conta para a prontidão)',
+    !!evTres && evTres.requisito === reqObrigatorio.id && evTres.pratica === '1.1.1');
+  verificar('(b) botão volta ao normal e a barra some',
+    formReq.fake.botao.disabled === false && formReq.fake.botao.textContent === 'Registrar evidência' &&
+    formReq.fake.barra.hidden === true);
+  verificar('(b) avisa o sucesso com a quantidade',
+    torrada() === 'Evidência registrada com 3 arquivos anexados.', torrada());
+  verificar('(b) a tela é redesenhada', conteudo.innerHTML !== 'MARCADOR');
+  verificar('(b) nenhum alerta de erro', alertas.length === 0, alertas.join('|'));
+  const faltasComTres = JSON.stringify(_info('1.1.1').faltas);
+
+  console.log('\n30) Lote inválido: nada é enviado');
+
+  // (c1) um arquivo inválido no meio
+  zerarRegistros();
+  formReq.fake.botao.disabled = false;
+  formReq.fake.botao.textContent = 'Registrar evidência';
+  formReq.elements = formReq.elements.filter((c) => c.name !== 'arquivo')
+    .map((c) => (c.name === 'titulo' ? { name: 'titulo', value: 'Lote ruim' } : c))
+    .concat([{ name: 'arquivo', type: 'file', files: [arqFalso('ok.pdf'), arqFalso('virus.exe'), arqFalso('ok2.pdf')] }]);
+  renderizarRota('#/pratica/1.1.1');
+  conteudo.innerHTML = 'MARCADOR';
+  const totalEvAntes = Store.estado().evidencias.length;
+  formReq.ao_submit(evento);
+  await esperarPromessas();
+  verificar('(c) arquivo inválido: NENHUM envio é feito', envios.length === 0, envios.length);
+  verificar('(c) arquivo inválido: o registro não é criado',
+    Store.estado().evidencias.length === totalEvAntes && evidenciasDe('Lote ruim').length === 0);
+  verificar('(c) o alerta diz QUAL arquivo e POR QUÊ',
+    alertas.length === 1 && alertas[0].indexOf('virus.exe') !== -1 &&
+    alertas[0].indexOf('Tipo de arquivo não aceito') !== -1 && alertas[0].indexOf('Nada foi enviado') !== -1,
+    alertas.join('|'));
+  verificar('(c) o formulário permanece como está (sem redesenhar, botão livre)',
+    conteudo.innerHTML === 'MARCADOR' && formReq.fake.botao.disabled === false);
+
+  // (c2) arquivo grande demais
+  zerarRegistros();
+  formReq.elements = formReq.elements.filter((c) => c.name !== 'arquivo')
+    .concat([{ name: 'arquivo', type: 'file', files: [arqFalso('ok.pdf'), arqFalso('enorme.pdf', 25 * 1024 * 1024)] }]);
+  formReq.ao_submit(evento);
+  await esperarPromessas();
+  verificar('(c) arquivo grande demais: nada enviado, alerta cita o arquivo e o limite',
+    envios.length === 0 && evidenciasDe('Lote ruim').length === 0 &&
+    alertas.length === 1 && alertas[0].indexOf('enorme.pdf') !== -1 && alertas[0].indexOf('20 MB') !== -1,
+    alertas.join('|'));
+
+  // (c3) mais de 10 arquivos
+  zerarRegistros();
+  formReq.elements = formReq.elements.filter((c) => c.name !== 'arquivo')
+    .concat([{ name: 'arquivo', type: 'file', files: Array.from({ length: 11 }, (_, i) => arqFalso('f' + i + '.pdf')) }]);
+  formReq.ao_submit(evento);
+  await esperarPromessas();
+  verificar('(c) mais de 10 arquivos é recusado: nada enviado nem registrado',
+    envios.length === 0 && evidenciasDe('Lote ruim').length === 0 &&
+    alertas.length === 1 && alertas[0].indexOf('11 arquivos') !== -1 && alertas[0].indexOf('10') !== -1,
+    alertas.join('|'));
+
+  // (c4) exatamente 10 arquivos passa
+  zerarRegistros();
+  formReq.elements = formReq.elements.filter((c) => c.name !== 'arquivo')
+    .map((c) => (c.name === 'titulo' ? { name: 'titulo', value: 'Dez arquivos' } : c))
+    .concat([{ name: 'arquivo', type: 'file', files: Array.from({ length: 10 }, (_, i) => arqFalso('d' + i + '.pdf')) }]);
+  formReq.ao_submit(evento);
+  await aguardar(() => evidenciasDe('Dez arquivos').length > 0);
+  verificar('(c) exatamente 10 arquivos é aceito: 10 envios e um registro',
+    envios.length === 10 && maxAtivos === 1 && evidenciasDe('Dez arquivos').length === 1 &&
+    evidenciasDe('Dez arquivos')[0].arquivos.length === 10);
+
+  console.log('\n31) Falha no meio do lote: rollback e nenhum registro');
+
+  // (d1) falha no 2º de 3
+  zerarRegistros();
+  formReq.elements = formReq.elements.filter((c) => c.name !== 'arquivo')
+    .map((c) => (c.name === 'titulo' ? { name: 'titulo', value: 'Falha no meio' } : c))
+    .concat([{ name: 'arquivo', type: 'file', files: tresArquivos }]);
+  renderizarRota('#/pratica/1.1.1');
+  conteudo.innerHTML = 'MARCADOR';
+  falharNoEnvio = 1;
+  formReq.ao_submit(evento);
+  await aguardar(() => alertas.length > 0);
+  verificar('(d) o 3º arquivo nem é tentado', envios.length === 2, envios.length);
+  verificar('(d) o 1º arquivo enviado é removido do armazenamento (rollback)',
+    removidosDoBucket.length === 1 && removidosDoBucket[0] === 'evidencias/CERNE1/1.1.1/2026/m-1-ata.pdf', removidosDoBucket.join('|'));
+  verificar('(d) NÃO cria o registro', evidenciasDe('Falha no meio').length === 0);
+  verificar('(d) mostra o erro, qual arquivo falhou e que nada foi registrado',
+    alertas.length === 1 && alertas[0].indexOf('rede caiu em lista.pdf') !== -1 &&
+    alertas[0].indexOf('arquivo 2 de 3') !== -1 && alertas[0].indexOf('nada foi registrado') !== -1,
+    alertas.join('|'));
+  verificar('(d) o formulário é mantido e o botão volta a funcionar',
+    conteudo.innerHTML === 'MARCADOR' && formReq.fake.botao.disabled === false &&
+    formReq.fake.botao.textContent === 'Registrar evidência' && formReq.fake.barra.hidden === true);
+
+  // (d2) falha no 1º: nada a desfazer
+  zerarRegistros();
+  falharNoEnvio = 0;
+  formReq.ao_submit(evento);
+  await aguardar(() => alertas.length > 0);
+  verificar('(d) falha no 1º arquivo: nada a remover e nenhum registro',
+    removidosDoBucket.length === 0 && envios.length === 1 && evidenciasDe('Falha no meio').length === 0);
+
+  // (d3) falha no último: remove os dois anteriores
+  zerarRegistros();
+  falharNoEnvio = 2;
+  formReq.ao_submit(evento);
+  await aguardar(() => alertas.length > 0);
+  verificar('(d) falha no 3º: os 2 anteriores são removidos',
+    removidosDoBucket.join('|') === 'evidencias/CERNE1/1.1.1/2026/m-1-ata.pdf|evidencias/CERNE1/1.1.1/2026/m-2-lista.pdf' &&
+    evidenciasDe('Falha no meio').length === 0, removidosDoBucket.join('|'));
+
+  // (d4) se a própria remoção falhar, nada quebra
+  zerarRegistros();
+  const removerOriginal = Store.removerArquivo;
+  Store.removerArquivo = () => { throw new Error('sem rede'); };
+  falharNoEnvio = 1;
+  formReq.ao_submit(evento);
+  await aguardar(() => alertas.length > 0);
+  verificar('(d) remoção que falha é só melhor esforço: o erro do envio chega à pessoa',
+    alertas.length === 1 && alertas[0].indexOf('rede caiu em lista.pdf') !== -1);
+  Store.removerArquivo = removerOriginal;
+
+  console.log('\n32) Evidência própria do parque e fluxos de 1 arquivo / sem arquivo');
+
+  // (k) 1 arquivo
+  zerarRegistros();
+  const formProp = formularioDeAnexos({}, {
+    titulo: 'Um anexo', refere_a: 'iniciativa', data_referencia: '2026-06-01'
+  }, [arqFalso('so-um.pdf', 4096)], 'Registrar evidência');
+  formAtual = formProp;
+  simularElementos({ '[data-form-evidencia-propria]': [formProp] });
+  renderizarRota('#/pratica/1.1.1');
+  formProp.ao_submit(evento);
+  verificar('(k) com 1 arquivo o texto do botão e da barra são os de sempre',
+    formProp.fake.botao.textContent === 'Enviando arquivo...' &&
+    formProp.fake.texto.textContent === 'Enviando... 0%', formProp.fake.texto.textContent);
+  await aguardar(() => evidenciasDe('Um anexo').length > 0);
+  const evUm = evidenciasDe('Um anexo')[0];
+  verificar('(k) 1 arquivo: 1 envio, índice 0, 1 registro',
+    envios.length === 1 && envios[0].indice === 0 && !!evUm);
+  verificar('(k) grava `arquivos` com 1 item e `arquivo` igual a ele',
+    !!evUm && evUm.arquivos.length === 1 && JSON.stringify(evUm.arquivo) === JSON.stringify(evUm.arquivos[0]));
+  verificar('(k) é evidência própria (sem requisito) e mantém o rótulo',
+    !!evUm && evUm.requisito === null && evUm.refere_a === 'iniciativa');
+  verificar('(k) mensagem de sucesso de sempre', torrada() === 'Evidência registrada com o arquivo anexado.', torrada());
+  verificar('(k) 1 arquivo: o progresso é "Enviando... N%"', envios[0].texto50 === 'Enviando... 50%', envios[0].texto50);
+
+  // própria com vários arquivos
+  zerarRegistros();
+  formProp.elements = formProp.elements.filter((c) => c.name !== 'arquivo')
+    .map((c) => (c.name === 'titulo' ? { name: 'titulo', value: 'Proprios varios' } : c))
+    .concat([{ name: 'arquivo', type: 'file', files: [arqFalso('p1.pdf'), arqFalso('p2.pdf')] }]);
+  renderizarRota('#/pratica/1.1.1');
+  formProp.ao_submit(evento);
+  await aguardar(() => evidenciasDe('Proprios varios').length > 0);
+  const evProp = evidenciasDe('Proprios varios')[0];
+  verificar('evidência própria aceita vários arquivos (um registro, 2 anexos)',
+    envios.length === 2 && !!evProp && evProp.arquivos.length === 2 && evProp.arquivo.nome === 'p1.pdf' &&
+    evProp.requisito === null);
+
+  // sem arquivo
+  zerarRegistros();
+  formProp.elements = [{ name: 'titulo', value: 'Sem anexo' }, { name: 'refere_a', value: 'x' }];
+  formProp.ao_submit(evento);
+  const evSem = evidenciasDe('Sem anexo')[0];
+  verificar('(k) sem arquivo: registra direto, sem `arquivo` nem `arquivos`',
+    envios.length === 0 && !!evSem && !('arquivo' in evSem) && !('arquivos' in evSem) &&
+    torrada() === 'Evidência registrada.');
+
+  // (j) a prontidão não muda com a quantidade de arquivos
+  Store.limpar();
+  zerarRegistros();
+  formReq.elements = formReq.elements.filter((c) => c.name !== 'arquivo')
+    .map((c) => (c.name === 'titulo' ? { name: 'titulo', value: 'Um so' } : c))
+    .concat([{ name: 'arquivo', type: 'file', files: [arqFalso('um.pdf')] }]);
+  formAtual = formReq;
+  simularElementos({ '[data-form-evidencia]': [formReq] });
+  renderizarRota('#/pratica/1.1.1');
+  formReq.ao_submit(evento);
+  await aguardar(() => evidenciasDe('Um so').length > 0);
+  verificar('(j) 1 arquivo ou 3 arquivos: as faltas da prática são as mesmas',
+    JSON.stringify(_info('1.1.1').faltas) === faltasComTres);
+  verificar('(j) a regra de prontidão não menciona anexos',
+    !/arquivo|anexo/i.test([janela.Regras.faltasDaPratica, janela.Regras.praticaCompleta,
+      janela.Regras.calcularProntidao].map((f) => f.toString()).join('\n')));
+
+  console.log('\n33) Listas, atividades e dossiê mostram TODOS os arquivos');
+
+  Store.limpar();
+  const anexoAntigo = {
+    url: 'https://armazem.test/velho.pdf', nome: 'velho.pdf', tamanho: 2048, tipo: 'application/pdf',
+    caminho: 'evidencias/CERNE1/1.1.1/2026/velho.pdf'
+  };
+  const tres = [
+    { url: 'https://armazem.test/a.pdf', nome: 'a.pdf', tamanho: 1024, tipo: 'application/pdf', caminho: 'c/a.pdf' },
+    { url: 'https://armazem.test/b.pdf', nome: 'b <b>1</b>.pdf', tamanho: 2048, tipo: 'application/pdf', caminho: 'c/b.pdf' },
+    { url: 'https://armazem.test/c.jpg', nome: 'c.jpg', tamanho: 3 * 1024 * 1024, tipo: 'image/jpeg', caminho: 'c/c.jpg' }
+  ];
+  Store.criarEm('atividades', {
+    tipo: 'evento', titulo: 'Oficina', descricao: '', data_realizacao: '2026-06-10', local: 'Sala 1',
+    responsavel: 'Ana', pratica: '1.1.1', empreendimento: '', programa: ''
+  });
+  const atvAnexos = Store.estado().atividades[0];
+  Store.criarEm('evidencias', {
+    pratica: '1.1.1', requisito: reqObrigatorio.id, titulo: 'Evid antiga', data_referencia: '2026-01-02',
+    arquivo: anexoAntigo
+  });
+  Store.criarEm('evidencias', {
+    pratica: '1.1.1', requisito: reqObrigatorio.id, titulo: 'Evid varios', data_referencia: '2026-01-03',
+    arquivo: tres[0], arquivos: tres
+  });
+  Store.criarEm('evidencias', {
+    pratica: '1.1.1', requisito: null, refere_a: 'proprio', titulo: 'Propria varios',
+    data_referencia: '2026-01-04', arquivo: tres[0], arquivos: tres
+  });
+  Store.criarEm('evidencias', {
+    pratica: '1.1.1', requisito: null, refere_a: 'proprio', titulo: 'Propria antiga',
+    data_referencia: '2026-01-05', arquivo: anexoAntigo
+  });
+  Store.criarEm('evidencias', {
+    pratica: '1.1.1', requisito: reqObrigatorio.id, titulo: 'Da atividade', data_referencia: '2026-01-06',
+    atividade: atvAnexos.id, arquivo: tres[0], arquivos: tres
+  });
+  Store.criarEm('evidencias', {
+    pratica: '1.1.1', requisito: reqObrigatorio.id, titulo: 'Url estranha', data_referencia: '2026-01-07',
+    arquivo: { url: 'javascript:alert(1)', nome: 'mau.pdf', caminho: 'c/mau.pdf' }
+  });
+
+  const abrir = (url) => '<a href="' + url + '" target="_blank" rel="noopener noreferrer" class="quebra">';
+  simularElementos({});
+  html = renderizarRota('#/pratica/1.1.1');
+
+  verificar('(e) evidência antiga (só `arquivo`) segue com o link "baixar arquivo", exatamente como antes',
+    html.indexOf(' · ' + abrir('https://armazem.test/velho.pdf') + 'baixar arquivo</a>') !== -1);
+  verificar('(e) ...e com nome e tamanho na linha de detalhes',
+    html.indexOf('velho.pdf · 2 KB · ') !== -1);
+  verificar('(e) registro antigo NÃO mostra o indicador "N arquivos"',
+    html.indexOf('1 arquivos') === -1 && html.indexOf('1 arquivo</span>') === -1);
+  verificar('(e) evidência própria antiga também',
+    html.indexOf('Propria antiga') !== -1 &&
+    contaDe(html, abrir('https://armazem.test/velho.pdf') + 'baixar arquivo</a>') === 2);
+  verificar('(h) evidência de requisito com 3 arquivos: um link por arquivo, com nome',
+    tres.every((a) => html.indexOf(abrir(a.url)) !== -1) &&
+    html.indexOf('>a.pdf</a>') !== -1 && html.indexOf('>c.jpg</a>') !== -1);
+  verificar('(h) mostra o tamanho de cada arquivo', html.indexOf('(1 KB)') !== -1 && html.indexOf('(3.0 MB)') !== -1);
+  verificar('(h) mostra o indicador "3 arquivos"', html.indexOf('<span class="etiqueta cinza">3 arquivos</span>') !== -1);
+  verificar('(h) nome do arquivo é escapado',
+    html.indexOf('b <b>1</b>.pdf') === -1 && html.indexOf('b &lt;b&gt;1&lt;/b&gt;.pdf') !== -1);
+  verificar('(h) com vários arquivos não aparece "baixar arquivo" para esse registro',
+    contaDe(html, 'baixar arquivo</a>') === 2);
+  verificar('(h) URL que não é http(s) nunca vira link',
+    html.indexOf('javascript:alert') === -1);
+  verificar('(h) evidência própria com 3 arquivos lista todos',
+    contaDe(html, abrir('https://armazem.test/c.jpg')) >= 3);
+
+  html = renderizarRota('#/atividades');
+  verificar('(h) "Documentos por atividade" lista todos os arquivos da evidência vinculada',
+    html.indexOf('Da atividade') !== -1 && tres.every((a) => html.indexOf(abrir(a.url)) !== -1) &&
+    html.indexOf('<span class="etiqueta cinza">3 arquivos</span>') !== -1);
+
+  html = renderizarRota('#/dossie');
+  const dossieOutras = html.slice(html.indexOf('Outras evidências do parque'));
+  verificar('(h) o dossiê lista todos os arquivos da evidência própria',
+    html.indexOf('Outras evidências do parque') !== -1 && html.indexOf('Propria varios') !== -1 &&
+    tres.every((a) => dossieOutras.indexOf('href="' + a.url + '"') !== -1) &&
+    dossieOutras.indexOf('<span class="etiqueta cinza">3 arquivos</span>') !== -1);
+  verificar('(h) o dossiê mostra o arquivo único da evidência antiga como antes',
+    dossieOutras.indexOf('href="https://armazem.test/velho.pdf"') !== -1 &&
+    dossieOutras.indexOf('>velho.pdf</a>') !== -1);
+  verificar('(h) o dossiê escapa o nome', html.indexOf('b <b>1</b>.pdf') === -1);
+
+  console.log('\n34) Documento de empreendimento com vários arquivos');
+
+  Store.limpar();
+  zerarRegistros();
+  Store.criarEm('empreendimentos', {
+    nome: 'Empresa Docs', setor: 'Software', estagio: 'pre_incubado', situacao: 'ativo'
+  });
+  const empDocs = Store.estado().empreendimentos[0];
+  const formDocEmp = formularioDeAnexos({}, {
+    titulo: 'Entregas', data_referencia: '2026-07-01', link: '', descricao: 'varios'
+  }, [arqFalso('e1.pdf', 1024), arqFalso('e2.pdf', 2048), arqFalso('e3.jpg', 4096)], 'Anexar documento',
+  documento.getElementById('form-documento-emp'));
+  formDocEmp.addEventListener = (ev, fn) => { formDocEmp['ao_' + ev] = fn; };
+  formAtual = formDocEmp;
+  renderizarRota('#/empreendimento/' + empDocs.id);
+  verificar('(g) o formulário do documento escuta submit e change',
+    typeof formDocEmp.ao_submit === 'function' && typeof formDocEmp.ao_change === 'function');
+  formDocEmp.ao_change({ target: { type: 'file', files: [arqFalso('e1.pdf', 1024), arqFalso('e2.pdf', 2048)] } });
+  verificar('(g) o formulário do documento mostra os arquivos escolhidos',
+    formDocEmp.fake.lista.innerHTML.indexOf('e2.pdf') !== -1 &&
+    formDocEmp.fake.lista.innerHTML.indexOf('2 arquivos escolhidos') !== -1);
+
+  formDocEmp.ao_submit(evento);
+  verificar('(g) botão trava durante o envio', formDocEmp.fake.botao.disabled === true);
+  await aguardar(() => (Store.estado().empreendimentos[0].documentos || []).length > 0);
+  const docsEmp = Store.estado().empreendimentos[0].documentos;
+  verificar('(g) 3 envios em sequência e UM documento',
+    envios.length === 3 && maxAtivos === 1 && docsEmp.length === 1 &&
+    envios.every((x, i) => x.tipo === 'empreendimento' && x.alvo === empDocs.id && x.indice === i &&
+      x.data === '2026-07-01'));
+  const docNovo = docsEmp[0];
+  verificar('(g) documento com arquivos.length === 3 e `arquivo` = primeiro',
+    docNovo.arquivos.length === 3 && JSON.stringify(docNovo.arquivo) === JSON.stringify(docNovo.arquivos[0]) &&
+    docNovo.arquivo.nome === 'e1.pdf');
+  verificar('(g) anexos de documento usam `path` (não `caminho`), como sempre',
+    docNovo.arquivos.every((a) => a.path && !('caminho' in a)) && semUndefined(docNovo));
+  verificar('(g) botão volta ao normal', formDocEmp.fake.botao.disabled === false &&
+    formDocEmp.fake.botao.textContent === 'Anexar documento');
+  verificar('(g) avisa a quantidade', torrada() === 'Documento anexado com 3 arquivos.', torrada());
+
+  html = renderizarRota('#/empreendimento/' + empDocs.id);
+  verificar('(g)(h) a lista de documentos mostra todos os arquivos',
+    docNovo.arquivos.every((a) => html.indexOf(abrir(a.url)) !== -1) &&
+    html.indexOf('<span class="etiqueta cinza">3 arquivos</span>') !== -1);
+
+  // documento antigo (só `arquivo` com `path`) e documento só com link
+  const docAntigo = {
+    id: 'docvelho', titulo: 'Pitch antigo', data_referencia: '2026-01-01', criado_em: '2026-01-01T00:00:00.000Z',
+    arquivo: { url: 'https://armazem.test/pitch.pdf', nome: 'pitch.pdf', path: 'empreendimentos/x/2026/pitch.pdf', tamanho: 2048, tipo: 'application/pdf' }
+  };
+  const docLink = { id: 'doclink', titulo: 'So link', link: 'https://drive.test/x', data_referencia: '2026-01-02' };
+  Store.atualizarEm('empreendimentos', empDocs.id, { documentos: [docAntigo, docLink].concat(docsEmp) });
+  html = renderizarRota('#/empreendimento/' + empDocs.id);
+  verificar('(e)(g) documento antigo segue com "baixar arquivo", nome e tamanho',
+    html.indexOf(' · ' + abrir('https://armazem.test/pitch.pdf') + 'baixar arquivo</a>') !== -1 &&
+    html.indexOf('pitch.pdf · 2 KB · ') !== -1);
+  verificar('(g) documento só com link continua sem arquivo',
+    html.indexOf('So link') !== -1 && html.indexOf('https://drive.test/x') !== -1);
+
+  // remoção apaga TODOS os caminhos, sem repetir o primeiro
+  const removerDoc = (id) => botaoFalso({ 'data-remover-documento': id });
+  const botNovo = removerDoc(docNovo.id);
+  const botAntigo = removerDoc('docvelho');
+  const botLink = removerDoc('doclink');
+  simularElementos({ '[data-remover-documento]': [botNovo, botAntigo, botLink] });
+  renderizarRota('#/empreendimento/' + empDocs.id);
+  removidosDoBucket.length = 0;
+  botNovo.ao_click();
+  verificar('(g) remover documento com 3 arquivos apaga os 3 caminhos, sem duplicar o primeiro',
+    removidosDoBucket.length === 3 && new Set(removidosDoBucket).size === 3 &&
+    removidosDoBucket.join('|') === docNovo.arquivos.map((a) => a.path).join('|'), removidosDoBucket.join('|'));
+  verificar('(g) o documento sai da lista',
+    Store.estado().empreendimentos[0].documentos.every((x) => x.id !== docNovo.id) &&
+    Store.estado().empreendimentos[0].documentos.length === 2);
+  renderizarRota('#/empreendimento/' + empDocs.id);
+  removidosDoBucket.length = 0;
+  botAntigo.ao_click();
+  verificar('(e) remover documento antigo apaga o seu único arquivo',
+    removidosDoBucket.length === 1 && removidosDoBucket[0] === 'empreendimentos/x/2026/pitch.pdf', removidosDoBucket.join('|'));
+  renderizarRota('#/empreendimento/' + empDocs.id);
+  removidosDoBucket.length = 0;
+  botLink.ao_click();
+  verificar('(g) remover documento só com link não apaga nada', removidosDoBucket.length === 0);
+
+  // falha no meio do lote de um documento: rollback com `path` e nada gravado
+  zerarRegistros();
+  simularElementos({});
+  const antesDocs = (Store.estado().empreendimentos[0].documentos || []).length;
+  formDocEmp.elements = formDocEmp.elements.filter((c) => c.name !== 'arquivo')
+    .concat([{ name: 'arquivo', type: 'file', files: [arqFalso('f1.pdf'), arqFalso('f2.pdf'), arqFalso('f3.pdf')] }]);
+  renderizarRota('#/empreendimento/' + empDocs.id);
+  falharNoEnvio = 1;
+  formDocEmp.ao_submit(evento);
+  await aguardar(() => alertas.length > 0);
+  verificar('(g)(d) falha no 2º arquivo do documento: remove o 1º (pelo `path`) e não grava',
+    removidosDoBucket.join('|') === 'empreendimentos/' + empDocs.id + '/2026/m-1-f1.pdf' &&
+    (Store.estado().empreendimentos[0].documentos || []).length === antesDocs &&
+    alertas[0].indexOf('rede caiu em f2.pdf') !== -1 && alertas[0].indexOf('arquivo 2 de 3') !== -1 &&
+    formDocEmp.fake.botao.disabled === false, alertas.join('|'));
+
+  // lote inválido no documento
+  zerarRegistros();
+  formDocEmp.elements = formDocEmp.elements.filter((c) => c.name !== 'arquivo')
+    .concat([{ name: 'arquivo', type: 'file', files: [arqFalso('f1.pdf'), arqFalso('x.exe')] }]);
+  formDocEmp.ao_submit(evento);
+  await esperarPromessas();
+  verificar('(g)(c) lote inválido no documento: nada enviado nem gravado',
+    envios.length === 0 && (Store.estado().empreendimentos[0].documentos || []).length === antesDocs &&
+    alertas.length === 1 && alertas[0].indexOf('x.exe') !== -1);
+
+  // um único arquivo no documento: fluxo de sempre
+  zerarRegistros();
+  formDocEmp.elements = formDocEmp.elements.filter((c) => c.name !== 'arquivo')
+    .map((c) => (c.name === 'titulo' ? { name: 'titulo', value: 'Documento unico' } : c))
+    .concat([{ name: 'arquivo', type: 'file', files: [arqFalso('unico.pdf')] }]);
+  formDocEmp.ao_submit(evento);
+  await aguardar(() => (Store.estado().empreendimentos[0].documentos || []).some((x) => x.titulo === 'Documento unico'));
+  const docUnico = Store.estado().empreendimentos[0].documentos.filter((x) => x.titulo === 'Documento unico')[0];
+  verificar('(k)(g) documento com 1 arquivo: `arquivos` com 1 item e `arquivo` igual',
+    envios.length === 1 && !!docUnico && docUnico.arquivos.length === 1 &&
+    JSON.stringify(docUnico.arquivo) === JSON.stringify(docUnico.arquivos[0]) &&
+    torrada() === 'Documento anexado com o arquivo.', torrada());
+
+  // documento só com link, sem arquivo
+  zerarRegistros();
+  formDocEmp.elements = [{ name: 'titulo', value: 'Apenas link' }, { name: 'link', value: 'https://drive.test/y' }];
+  formDocEmp.ao_submit(evento);
+  const docSoLink = Store.estado().empreendimentos[0].documentos.filter((x) => x.titulo === 'Apenas link')[0];
+  verificar('(k)(g) documento sem arquivo: grava só o link, sem `arquivo` nem `arquivos`',
+    envios.length === 0 && !!docSoLink && !('arquivo' in docSoLink) && !('arquivos' in docSoLink) &&
+    docSoLink.link === 'https://drive.test/y' && torrada() === 'Documento anexado.');
+
+  removerArmazenamentoFalso();
+  Store.criarEm = criarOriginal;
+  janela.alert = alertOriginal;
+  pararSimulacao();
+  html = renderizarRota('#/pratica/1.1.1');
+  verificar('sem armazenamento, os campos de arquivo somem de novo', html.indexOf('type="file"') === -1);
+
   Store.atualizarEm = atualizarOriginal;
   pararSimulacao();
   delete janela.prompt;

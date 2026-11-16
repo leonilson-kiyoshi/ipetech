@@ -518,5 +518,181 @@ const fonteRegra = [Regras.faltasDaPratica, Regras.praticaCompleta, Regras.calcu
 verificar('a regra de prontidão não menciona atividades nem tipo_documento',
   !/atividade|tipo_documento|docs_dispensados/i.test(fonteRegra));
 
+console.log('\n19) anexosDoRegistro / caminhosDeAnexos: vários arquivos, registros antigos');
+
+const anexoA = { url: 'https://x/a', nome: 'a.pdf', caminho: 'evidencias/CERNE1/1.1.1/2026/a.pdf', tamanho: 10, tipo: 'application/pdf' };
+const anexoB = { url: 'https://x/b', nome: 'b.pdf', caminho: 'evidencias/CERNE1/1.1.1/2026/b.pdf', tamanho: 20, tipo: 'application/pdf' };
+
+verificar('MAX_ARQUIVOS_POR_REGISTRO vale 10', Regras.MAX_ARQUIVOS_POR_REGISTRO === 10);
+verificar('registro antigo (só `arquivo`) vira lista com 1 anexo',
+  JSON.stringify(Regras.anexosDoRegistro({ arquivo: anexoA })) === JSON.stringify([anexoA]));
+verificar('usa `arquivos` quando há itens, na ordem',
+  Regras.anexosDoRegistro({ arquivos: [anexoA, anexoB], arquivo: anexoA })
+    .map((a) => a.nome).join(',') === 'a.pdf,b.pdf');
+verificar('deduplica por caminho (o primeiro está em `arquivo` e em `arquivos`)',
+  Regras.anexosDoRegistro({ arquivos: [anexoA, anexoB, Object.assign({}, anexoA)], arquivo: anexoA }).length === 2);
+verificar('deduplica por url quando não há caminho',
+  Regras.anexosDoRegistro({ arquivos: [{ url: 'https://x/z', nome: 'z' }, { url: 'https://x/z', nome: 'z2' }] }).length === 1);
+
+const docEmp = { url: 'https://x/d', nome: 'd.pdf', path: 'empreendimentos/IPE-1/2026/d.pdf', tamanho: 5, tipo: '' };
+const normEmp = Regras.anexosDoRegistro({ arquivo: docEmp });
+verificar('aceita `path` (documento de empreendimento) e devolve sempre `caminho`',
+  normEmp.length === 1 && normEmp[0].caminho === docEmp.path && !('path' in normEmp[0]));
+verificar('aceita `caminho` e `path` misturados e deduplica entre eles',
+  Regras.anexosDoRegistro({
+    arquivos: [docEmp, { url: 'https://x/d', nome: 'd.pdf', caminho: docEmp.path }]
+  }).length === 1);
+verificar('o anexo normalizado tem exatamente as chaves url, nome, caminho, tamanho, tipo',
+  Object.keys(normEmp[0]).sort().join(',') === 'caminho,nome,tamanho,tipo,url');
+
+verificar('tolera registro nulo, indefinido e vazio',
+  Regras.anexosDoRegistro(null).length === 0 && Regras.anexosDoRegistro(undefined).length === 0 &&
+  Regras.anexosDoRegistro({}).length === 0 && Regras.anexosDoRegistro('texto').length === 0);
+verificar('tolera `arquivos` que não é lista e itens inválidos',
+  Regras.anexosDoRegistro({ arquivos: 'x', arquivo: null }).length === 0 &&
+  Regras.anexosDoRegistro({ arquivos: [null, 3, 'a', {}, { nome: 'sem url nem caminho' }] }).length === 0);
+verificar('`arquivos` vazio cai no `arquivo` antigo',
+  Regras.anexosDoRegistro({ arquivos: [], arquivo: anexoA }).length === 1);
+verificar('itens inválidos em `arquivos` são ignorados, os válidos ficam',
+  Regras.anexosDoRegistro({ arquivos: [null, anexoB] }).length === 1);
+verificar('a saída não contém undefined',
+  !temUndefined(Regras.anexosDoRegistro({ arquivos: [{ url: 'https://x/u' }] })));
+
+verificar('caminhosDeAnexos: registro antigo devolve o caminho único',
+  JSON.stringify(Regras.caminhosDeAnexos({ arquivo: anexoA })) === JSON.stringify([anexoA.caminho]));
+verificar('caminhosDeAnexos não repete o primeiro (em `arquivo` e em `arquivos`)',
+  JSON.stringify(Regras.caminhosDeAnexos({ arquivos: [anexoA, anexoB], arquivo: anexoA })) ===
+  JSON.stringify([anexoA.caminho, anexoB.caminho]));
+verificar('caminhosDeAnexos lê `path` do documento de empreendimento',
+  JSON.stringify(Regras.caminhosDeAnexos({ arquivos: [docEmp], arquivo: docEmp })) ===
+  JSON.stringify([docEmp.path]));
+verificar('caminhosDeAnexos ignora anexos sem caminho e tolera nulo',
+  Regras.caminhosDeAnexos({ arquivos: [{ url: 'https://x/u' }] }).length === 0 &&
+  Regras.caminhosDeAnexos(null).length === 0 && Regras.caminhosDeAnexos({}).length === 0);
+verificar('caminhosDeAnexos inclui o `arquivo` mesmo que falte em `arquivos` (não deixa órfão)',
+  JSON.stringify(Regras.caminhosDeAnexos({ arquivos: [anexoB], arquivo: anexoA })) ===
+  JSON.stringify([anexoB.caminho, anexoA.caminho]));
+
+console.log('\n20) indiceDeAnexos: todos os arquivos e bloco de evidências (aditivo)');
+
+const estadoIndice = {
+  empreendimentos: [
+    {
+      nome: 'Empresa Um', codigo: 'IPE-0001',
+      documentos: [
+        // antigo: um arquivo só, com `path`
+        { titulo: 'Pitch', arquivo: docEmp, data_referencia: '2026-02-01' },
+        // novo: vários arquivos
+        {
+          titulo: 'Entregas', data_referencia: '2026-03-01',
+          arquivo: { url: 'https://x/e1', nome: 'e1.pdf', path: 'empreendimentos/IPE-1/2026/e1.pdf' },
+          arquivos: [
+            { url: 'https://x/e1', nome: 'e1.pdf', path: 'empreendimentos/IPE-1/2026/e1.pdf' },
+            { url: 'https://x/e2', nome: 'e2.pdf', path: 'empreendimentos/IPE-1/2026/e2.pdf' }
+          ]
+        },
+        // só link
+        { titulo: 'Pasta', link: 'https://drive/x', data_referencia: '2026-04-01' }
+      ]
+    },
+    { nome: 'Sem docs', codigo: 'IPE-0002', documentos: [] }
+  ],
+  evidencias: [
+    { protocolo: 'EVD-2026-001', titulo: 'Lista', pratica: '1.1.1', arquivo: anexoA },
+    { protocolo: 'EVD-2026-002', titulo: 'Fotos', pratica: '1.1.2', arquivo: anexoA, arquivos: [anexoA, anexoB] },
+    { protocolo: 'EVD-2026-003', titulo: 'So link', pratica: '1.1.1', link: 'https://x' }
+  ]
+};
+const indice = Regras.indiceDeAnexos(estadoIndice);
+verificar('mantém as chaves de sempre (observacao e empreendimentos)',
+  typeof indice.observacao === 'string' && Array.isArray(indice.empreendimentos));
+verificar('empreendimento sem documentos continua fora do índice',
+  indice.empreendimentos.length === 1 && indice.empreendimentos[0].codigo === 'IPE-0001');
+const docsIdx = indice.empreendimentos[0].documentos;
+verificar('documento antigo mantém titulo, url, path e data_referencia',
+  docsIdx[0].titulo === 'Pitch' && docsIdx[0].url === docEmp.url &&
+  docsIdx[0].path === docEmp.path && docsIdx[0].data_referencia === '2026-02-01');
+verificar('documento antigo ganha `arquivos` com o único arquivo',
+  JSON.stringify(docsIdx[0].arquivos) ===
+  JSON.stringify([{ nome: 'd.pdf', url: docEmp.url, path: docEmp.path }]));
+verificar('documento com vários arquivos lista todos (nome, url, path)',
+  docsIdx[1].arquivos.length === 2 && docsIdx[1].arquivos[1].nome === 'e2.pdf' &&
+  docsIdx[1].arquivos[1].url === 'https://x/e2' &&
+  docsIdx[1].arquivos[1].path === 'empreendimentos/IPE-1/2026/e2.pdf');
+verificar('url e path do documento seguem sendo os do primeiro arquivo',
+  docsIdx[1].url === 'https://x/e1' && docsIdx[1].path === 'empreendimentos/IPE-1/2026/e1.pdf');
+verificar('documento só com link: url é o link, path vazio, sem arquivos',
+  docsIdx[2].url === 'https://drive/x' && docsIdx[2].path === '' && docsIdx[2].arquivos.length === 0);
+verificar('bloco `evidencias` traz só evidências com anexo',
+  Array.isArray(indice.evidencias) && indice.evidencias.length === 2 &&
+  indice.evidencias.map((x) => x.protocolo).join(',') === 'EVD-2026-001,EVD-2026-002');
+verificar('evidência no índice: protocolo, titulo, pratica e arquivos {nome,url,path}',
+  JSON.stringify(Object.keys(indice.evidencias[1]).sort()) ===
+  JSON.stringify(['arquivos', 'pratica', 'protocolo', 'titulo']) &&
+  indice.evidencias[1].pratica === '1.1.2' && indice.evidencias[1].arquivos.length === 2 &&
+  JSON.stringify(Object.keys(indice.evidencias[1].arquivos[0]).sort()) ===
+  JSON.stringify(['nome', 'path', 'url']) && indice.evidencias[1].arquivos[1].path === anexoB.caminho);
+verificar('evidência antiga entra no índice com o arquivo único',
+  indice.evidencias[0].arquivos.length === 1 && indice.evidencias[0].arquivos[0].path === anexoA.caminho);
+verificar('o índice não contém undefined', !temUndefined(indice));
+verificar('sem evidências nem empreendimentos: estrutura vazia válida',
+  JSON.stringify(Regras.indiceDeAnexos({}).evidencias) === '[]' &&
+  JSON.stringify(Regras.indiceDeAnexos({}).empreendimentos) === '[]');
+
+// O backup exportado leva o índice, e importar um backup (com ou sem o índice) continua igual.
+Store.limpar();
+Store.criarEm('evidencias', {
+  pratica: '1.1.1', requisito: null, titulo: 'Com varios', data_referencia: '2026-01-10',
+  arquivo: anexoA, arquivos: [anexoA, anexoB]
+});
+Store.criarEm('evidencias', {
+  pratica: '1.1.1', requisito: null, titulo: 'Antiga', data_referencia: '2026-01-11', arquivo: anexoB
+});
+const backupNovo = JSON.parse(JSON.stringify(Store.exportarObjeto()));
+verificar('exportarObjeto leva o índice com o bloco de evidências',
+  backupNovo.anexos_indice && backupNovo.anexos_indice.evidencias.length === 2 &&
+  backupNovo.anexos_indice.evidencias[0].arquivos.length === 2);
+Store.limpar();
+Store.importarObjeto(backupNovo);
+const evImportadas = Store.estado().evidencias;
+verificar('importar o backup novo restaura os anexos (arquivo e arquivos) intactos',
+  evImportadas.length === 2 && evImportadas[0].arquivos.length === 2 &&
+  evImportadas[0].arquivo.caminho === anexoA.caminho && evImportadas[1].arquivo.caminho === anexoB.caminho &&
+  evImportadas[1].arquivos === undefined);
+const backupAntigo = JSON.parse(JSON.stringify(backupNovo));
+delete backupAntigo.anexos_indice;
+Store.limpar();
+Store.importarObjeto(backupAntigo);
+verificar('importar backup sem o índice continua funcionando', Store.estado().evidencias.length === 2);
+
+console.log('\n21) Vários arquivos NÃO mudam a prontidão');
+Store.limpar();
+const praticaQ = praticasN1[0];
+const reqQ = praticaQ.requisitos.filter((r) => r.obrigatorio)[0];
+const faltasSemEv = JSON.stringify(Store.faltasDaPratica(praticaQ));
+Store.criarEm('evidencias', {
+  pratica: praticaQ.codigo, requisito: reqQ.id, titulo: 'um', data_referencia: '2026-01-10',
+  arquivo: anexoA, arquivos: [anexoA]
+});
+const faltasUmArquivo = JSON.stringify(Store.faltasDaPratica(praticaQ));
+Store.limpar();
+Store.criarEm('evidencias', {
+  pratica: praticaQ.codigo, requisito: reqQ.id, titulo: 'muitos', data_referencia: '2026-01-10',
+  arquivo: anexoA, arquivos: [anexoA, anexoB, docEmp, anexoB]
+});
+const faltasMuitos = JSON.stringify(Store.faltasDaPratica(praticaQ));
+verificar('a mesma evidência com 1 ou vários arquivos dá as mesmas faltas',
+  faltasUmArquivo === faltasMuitos);
+verificar('o anexo atende o requisito como qualquer evidência (faltas diminuem)',
+  faltasSemEv !== faltasMuitos);
+Store.limpar();
+Store.criarEm('evidencias', {
+  pratica: praticaQ.codigo, requisito: reqQ.id, titulo: 'sem arquivo', data_referencia: '2026-01-10'
+});
+verificar('evidência sem arquivo conta igual à com arquivos',
+  JSON.stringify(Store.faltasDaPratica(praticaQ)) === faltasMuitos);
+verificar('a regra de prontidão não menciona anexos nem arquivos',
+  !/anexo|arquivo/i.test(fonteRegra));
+
 console.log('\n' + (falhas === 0 ? 'TODOS OS TESTES PASSARAM' : falhas + ' TESTE(S) FALHARAM'));
 process.exit(falhas === 0 ? 0 : 1);

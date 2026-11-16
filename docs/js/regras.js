@@ -752,13 +752,84 @@
     return { erro: '', dados: dados, mudou: Object.keys(dados).length > 0 };
   }
 
+  /* ================================================= anexos de um registro
+
+     Uma evidência ou um documento de empreendimento pode ter VÁRIOS arquivos.
+     Os registros guardam a lista em `arquivos` e, por compatibilidade, o
+     primeiro também em `arquivo` (era o único campo antes). Registros antigos
+     têm só `arquivo`. Estes helpers leem os dois formatos e são a única porta
+     de leitura dos anexos: tela, remoção e backup passam por aqui.
+
+     O anexo de evidência guarda o caminho do bucket em `caminho`; o de
+     documento de empreendimento, em `path`. Ao ler, aceitamos os dois e
+     devolvemos sempre `caminho`.
+     ====================================================================== */
+
+  var MAX_ARQUIVOS_POR_REGISTRO = 10;
+
+  function anexoNormalizado(bruto) {
+    if (!bruto || typeof bruto !== 'object') return null;
+    var caminho = String(bruto.caminho || bruto.path || '');
+    var url = String(bruto.url || '');
+    if (!caminho && !url) return null;
+    return {
+      url: url,
+      nome: String(bruto.nome || ''),
+      caminho: caminho,
+      tamanho: Number(bruto.tamanho) || 0,
+      tipo: String(bruto.tipo || '')
+    };
+  }
+
+  /** Junta anexos sem repetir: a chave é o caminho (ou a URL, na falta dele). */
+  function anexosUnicos(brutos) {
+    var vistos = Object.create(null);
+    var saida = [];
+    (brutos || []).forEach(function (bruto) {
+      var anexo = anexoNormalizado(bruto);
+      if (!anexo) return;
+      var chave = anexo.caminho || anexo.url;
+      if (temPropriedade(vistos, chave)) return;
+      vistos[chave] = true;
+      saida.push(anexo);
+    });
+    return saida;
+  }
+
+  /** Anexos do registro como lista de {url, nome, caminho, tamanho, tipo}.
+   *  Usa `arquivos` quando há itens válidos; senão cai no `arquivo` único dos
+   *  registros antigos. Tolera registro nulo, sem anexo e itens inválidos. */
+  function anexosDoRegistro(registro) {
+    if (!registro || typeof registro !== 'object') return [];
+    var lista = Array.isArray(registro.arquivos) ? anexosUnicos(registro.arquivos) : [];
+    return lista.length ? lista : anexosUnicos([registro.arquivo]);
+  }
+
+  /** Caminhos do bucket a apagar quando o registro é removido: únicos e não
+   *  vazios. Considera `arquivos` E `arquivo`, para não deixar órfão um
+   *  arquivo que só um dos dois campos cita. */
+  function caminhosDeAnexos(registro) {
+    if (!registro || typeof registro !== 'object') return [];
+    var todos = (Array.isArray(registro.arquivos) ? registro.arquivos : [])
+      .concat([registro.arquivo]);
+    return anexosUnicos(todos).map(function (a) { return a.caminho; })
+      .filter(function (caminho) { return caminho !== ''; });
+  }
+
   /* ===================================================== índice de anexos
 
      Para o backup (Fase 2): os arquivos em si ficam no Firebase Storage, não
      no .json. Este índice lista, por empreendimento, o título e a URL de cada
-     documento anexado, para rastreabilidade — restaurar o backup recria os
-     registros, não os arquivos. É puramente informativo e aditivo.
+     documento anexado (e, em `evidencias`, os arquivos de cada evidência),
+     para rastreabilidade — restaurar o backup recria os registros, não os
+     arquivos. É puramente informativo e aditivo.
      ====================================================================== */
+
+  function arquivosDoIndice(registro) {
+    return anexosDoRegistro(registro).map(function (a) {
+      return { nome: a.nome, url: a.url, path: a.caminho };
+    });
+  }
 
   function indiceDeAnexos(estado) {
     var empreendimentos = (estado.empreendimentos || []).map(function (e) {
@@ -766,22 +837,34 @@
         empreendimento: e.nome || '',
         codigo: e.codigo || '',
         documentos: (e.documentos || []).map(function (d) {
+          var anexos = anexosDoRegistro(d);
           return {
             titulo: d.titulo || '',
-            url: (d.arquivo && d.arquivo.url) || d.link || '',
-            path: (d.arquivo && d.arquivo.path) || '',
-            data_referencia: d.data_referencia || ''
+            url: (anexos[0] && anexos[0].url) || d.link || '',
+            path: (anexos[0] && anexos[0].caminho) || '',
+            data_referencia: d.data_referencia || '',
+            arquivos: arquivosDoIndice(d)
           };
         })
       };
     }).filter(function (e) { return e.documentos.length > 0; });
+
+    var evidencias = (estado.evidencias || []).map(function (ev) {
+      return {
+        protocolo: ev.protocolo || '',
+        titulo: ev.titulo || '',
+        pratica: ev.pratica || '',
+        arquivos: arquivosDoIndice(ev)
+      };
+    }).filter(function (ev) { return ev.arquivos.length > 0; });
 
     return {
       observacao:
         'Os arquivos em si ficam no Firebase Storage; este índice guarda ' +
         'apenas título e URL de cada anexo, para rastreabilidade. Restaurar ' +
         'este backup recria os registros, não os arquivos.',
-      empreendimentos: empreendimentos
+      empreendimentos: empreendimentos,
+      evidencias: evidencias
     };
   }
 
@@ -830,6 +913,9 @@
     diferencasDeRegistro: diferencasDeRegistro,
     prepararEdicaoAtividade: prepararEdicaoAtividade,
 
+    MAX_ARQUIVOS_POR_REGISTRO: MAX_ARQUIVOS_POR_REGISTRO,
+    anexosDoRegistro: anexosDoRegistro,
+    caminhosDeAnexos: caminhosDeAnexos,
     indiceDeAnexos: indiceDeAnexos
   };
 })(window);

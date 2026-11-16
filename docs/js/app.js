@@ -128,6 +128,215 @@
     return (n / 1024 / 1024).toFixed(1) + ' MB';
   }
 
+  /* ------------------------------------------------- vários anexos por registro
+
+     Uma evidência ou um documento de empreendimento pode ter vários arquivos.
+     A leitura passa sempre por Regras.anexosDoRegistro, que entende tanto o
+     formato novo (`arquivos`) quanto o antigo (só `arquivo`). */
+
+  /** Máximo de arquivos por envio (regra única, em regras.js). */
+  function maxArquivos() {
+    return global.Regras.MAX_ARQUIVOS_POR_REGISTRO;
+  }
+
+  /** Arquivos escolhidos no campo, como array comum (vazio se nenhum). */
+  function listaDeArquivos(campo) {
+    return campo && campo.length ? Array.prototype.slice.call(campo) : [];
+  }
+
+  /** Campo de anexos dos formulários: vários arquivos, lista dos escolhidos
+   *  logo abaixo, ajuda e a barra de progresso do envio. */
+  function campoAnexosHtml(ajudaInicial, ajudaFinal) {
+    return (
+      '<div class="campo campo-arquivo">' +
+      '<label>Anexar arquivos</label>' +
+      '<input type="file" name="arquivo" multiple accept="' + aceitaArquivos() + '">' +
+      '<div class="arquivos-escolhidos" aria-live="polite"></div>' +
+      '<span class="ajuda">' + ajudaInicial +
+      'Você pode selecionar vários arquivos (até ' + maxArquivos() +
+      ', cada um com até 20 MB).' + ajudaFinal + '</span>' +
+      '<div class="envio-barra" hidden><div class="envio-trilha">' +
+      '<span></span></div><span class="envio-texto"></span></div>' +
+      '</div>'
+    );
+  }
+
+  /** Mostra, logo abaixo do campo, o nome e o tamanho de cada arquivo
+   *  escolhido, com aviso se passar do máximo. */
+  function mostrarArquivosEscolhidos(form, campo) {
+    var caixa = form.querySelector('.arquivos-escolhidos');
+    if (!caixa) return;
+    var arquivos = listaDeArquivos(campo.files);
+    if (!arquivos.length) { caixa.innerHTML = ''; return; }
+
+    var max = maxArquivos();
+    caixa.innerHTML =
+      '<p class="pequeno sem-margem"><strong>' + arquivos.length +
+      (arquivos.length === 1 ? ' arquivo escolhido' : ' arquivos escolhidos') +
+      '</strong></p>' +
+      '<ul class="lista-escolhidos">' + arquivos.map(function (f) {
+        var tam = tamanhoLegivel(f.size);
+        return '<li class="quebra">' + esc(f.name) +
+          (tam ? ' <span class="suave">(' + tam + ')</span>' : '') + '</li>';
+      }).join('') + '</ul>' +
+      (arquivos.length > max
+        ? '<p class="aviso atencao pequeno">Você escolheu ' + arquivos.length +
+          ' arquivos, mas o máximo é ' + max + ' por envio. Escolha menos ' +
+          'arquivos antes de registrar.</p>'
+        : '');
+  }
+
+  /** Liga o campo de anexos do formulário à lista dos arquivos escolhidos.
+   *  O evento `change` sobe do campo até o formulário. */
+  function ligarCampoAnexos(form) {
+    form.addEventListener('change', function (ev) {
+      var alvo = ev && ev.target;
+      if (alvo && alvo.type === 'file') mostrarArquivosEscolhidos(form, alvo);
+    });
+  }
+
+  /** Confere o lote INTEIRO antes de enviar qualquer coisa: quantidade e,
+   *  arquivo por arquivo, tamanho e tipo. Devolve o texto do problema (com o
+   *  nome do arquivo), ou '' se está tudo certo. */
+  function problemaDoLote(arquivos) {
+    var max = maxArquivos();
+    if (arquivos.length > max) {
+      return 'Você escolheu ' + arquivos.length + ' arquivos, mas o máximo é ' +
+        max + ' por envio. Nada foi enviado: escolha menos arquivos.';
+    }
+    for (var i = 0; i < arquivos.length; i++) {
+      var problema = Store.conferirArquivo(arquivos[i]);
+      if (problema) {
+        return 'Arquivo "' + (arquivos[i] && arquivos[i].name) + '": ' + problema +
+          '\n\nNada foi enviado.';
+      }
+    }
+    return '';
+  }
+
+  /** Botão e barra de progresso de um envio em andamento. A barra é GERAL:
+   *  (arquivos concluídos + percentual do atual) / total. */
+  function painelDeEnvio(form, total) {
+    var botao = form.querySelector('button[type="submit"]');
+    var caixaBarra = form.querySelector('.envio-barra');
+    var preenchimento = caixaBarra && caixaBarra.querySelector('.envio-trilha > span');
+    var textoBarra = caixaBarra && caixaBarra.querySelector('.envio-texto');
+    var rotulo = botao ? botao.textContent : '';
+    var painel = { indice: 0 };
+
+    painel.progresso = function (indice, pct) {
+      painel.indice = indice;
+      var geral = Math.round(100 * (indice + (Number(pct) || 0) / 100) / total);
+      if (caixaBarra) caixaBarra.hidden = false;
+      if (preenchimento) preenchimento.style.width = geral + '%';
+      if (textoBarra) {
+        textoBarra.textContent = total > 1
+          ? 'Enviando arquivo ' + (indice + 1) + ' de ' + total + '… ' + geral + '%'
+          : 'Enviando... ' + geral + '%';
+      }
+    };
+
+    // O botão desabilitado impede o envio duplo enquanto os arquivos sobem.
+    painel.travar = function () {
+      if (botao) {
+        botao.disabled = true;
+        botao.textContent = total > 1 ? 'Enviando arquivos...' : 'Enviando arquivo...';
+      }
+      painel.progresso(0, 0);
+    };
+
+    painel.liberar = function () {
+      if (botao) {
+        botao.disabled = false;
+        botao.textContent = rotulo;
+      }
+      if (textoBarra) textoBarra.textContent = '';
+      if (caixaBarra) caixaBarra.hidden = true;
+    };
+
+    return painel;
+  }
+
+  /** Apaga do bucket, sem esperar e sem reclamar, os arquivos de um lote que
+   *  não chegou a virar registro. Melhor esforço: se a remoção falhar, o
+   *  arquivo órfão fica, mas nunca um registro apontando para o que não existe. */
+  function descartarEnviados(anexos) {
+    if (typeof Store.removerArquivo !== 'function') return;
+    global.Regras.caminhosDeAnexos({ arquivos: anexos }).forEach(function (caminho) {
+      try {
+        Promise.resolve(Store.removerArquivo(caminho)).catch(function () {});
+      } catch (erro) { /* melhor esforço */ }
+    });
+  }
+
+  /** Envia os arquivos UM POR VEZ (nunca em paralelo) e devolve a lista de
+   *  anexos, na ordem escolhida. `enviarUm(arquivo, indice, aoProgresso)`
+   *  sobe um arquivo. Se algum falhar, os já enviados são descartados e a
+   *  promessa é rejeitada com o erro original: quem chama NÃO deve criar o
+   *  registro, porque ele apontaria para arquivos que não chegaram. */
+  function enviarEmSequencia(arquivos, enviarUm, aoProgresso) {
+    var enviados = [];
+    var fila = Promise.resolve();
+    arquivos.forEach(function (arquivo, indice) {
+      fila = fila.then(function () {
+        aoProgresso(indice, 0);
+        return enviarUm(arquivo, indice, function (pct) { aoProgresso(indice, pct); });
+      }).then(function (anexo) {
+        enviados.push(anexo);
+        aoProgresso(indice, 100);
+      });
+    });
+    return fila.then(function () { return enviados; }, function (erro) {
+      descartarEnviados(enviados);
+      throw erro;
+    });
+  }
+
+  /** Aviso extra quando o envio de um lote para no meio. */
+  function textoFalhaDoLote(arquivos, indice) {
+    var falho = arquivos[indice];
+    return 'O envio parou no arquivo ' + (indice + 1) + ' de ' + arquivos.length +
+      (falho && falho.name ? ' ("' + falho.name + '")' : '') + '. ' +
+      'Os arquivos já enviados deste lote foram descartados e nada foi registrado.\n\n';
+  }
+
+  /** Links dos anexos de um registro, para as listas.
+   *
+   *  Um arquivo só (inclusive os registros antigos): "baixar arquivo" ao lado
+   *  do título e nome + tamanho na linha de detalhes, como sempre foi.
+   *  Vários: o indicador "N arquivos" ao lado do título e um link por arquivo.
+   *
+   *  Devolve { acao, bloco, detalhe } (HTML já escapado):
+   *    acao    ao lado do título
+   *    bloco   linhas de links, antes da linha de detalhes
+   *    detalhe início da linha de detalhes (nome e tamanho, só com um arquivo) */
+  function anexosHtml(registro) {
+    var anexos = global.Regras.anexosDoRegistro(registro).filter(function (a) {
+      return urlSegura(a.url);
+    });
+    if (!anexos.length) return { acao: '', bloco: '', detalhe: '' };
+
+    if (anexos.length === 1) {
+      var unico = anexos[0];
+      return {
+        acao: ' · <a href="' + esc(urlSegura(unico.url)) + '" target="_blank" ' +
+          'rel="noopener noreferrer" class="quebra">baixar arquivo</a>',
+        bloco: '',
+        detalhe: esc(unico.nome) + ' · ' + tamanhoLegivel(unico.tamanho) + ' · '
+      };
+    }
+    return {
+      acao: ' · <span class="etiqueta cinza">' + anexos.length + ' arquivos</span>',
+      bloco: '<br>' + anexos.map(function (a) {
+        var tam = tamanhoLegivel(a.tamanho);
+        return '<a href="' + esc(urlSegura(a.url)) + '" target="_blank" ' +
+          'rel="noopener noreferrer" class="quebra">' + esc(a.nome || 'arquivo') + '</a>' +
+          (tam ? ' <span class="pequeno suave">(' + tam + ')</span>' : '');
+      }).join('<br>'),
+      detalhe: ''
+    };
+  }
+
   function avisoConsulta() {
     if (Store.podeEditar()) return '';
 
@@ -627,20 +836,17 @@
         return passaFiltroEvid(e, 'requisito');
       }).map(function (e) {
         var link = urlSegura(e.link);
-        var anexo = e.arquivo && e.arquivo.url ? e.arquivo : null;
+        var anexos = anexosHtml(e);
         var vinc = vinculoEvidencia(e);
         return (
           '<li><span style="flex:1;min-width:0">' +
           (e.protocolo ? '<span class="etiqueta azul">' + esc(e.protocolo) + '</span> ' : '') +
           '<strong>' + esc(e.titulo) + '</strong>' +
-          (anexo
-            ? ' · <a href="' + esc(urlSegura(anexo.url)) + '" target="_blank" ' +
-              'rel="noopener noreferrer" class="quebra">' +
-              'baixar arquivo</a>'
-            : '') +
+          anexos.acao +
           (link ? ' · <a href="' + esc(link) + '" target="_blank" rel="noopener noreferrer" class="quebra">abrir link</a>' : '') +
+          anexos.bloco +
           '<br><span class="pequeno suave quebra">' +
-          (anexo ? esc(anexo.nome) + ' · ' + tamanhoLegivel(anexo.tamanho) + ' · ' : '') +
+          anexos.detalhe +
           (e.descricao ? esc(e.descricao) + ' · ' : '') +
           'ref. ' + dataBR(e.data_referencia) +
           (e.responsavel ? ' · ' + esc(e.responsavel) : '') +
@@ -694,14 +900,10 @@
           // nuvem). No modo local não há onde guardar o arquivo, então
           // oferecer o campo seria enganoso.
           (podeAnexar()
-            ? '<div class="campo campo-arquivo">' +
-              '<label>Anexar arquivo</label>' +
-              '<input type="file" name="arquivo" accept="' + aceitaArquivos() + '">' +
-              '<span class="ajuda">PDF, Word, Excel, imagem, ZIP... até 20 MB. ' +
-              'O arquivo fica guardado no sistema.</span>' +
-              '<div class="envio-barra" hidden><div class="envio-trilha">' +
-              '<span></span></div><span class="envio-texto"></span></div>' +
-              '</div>'
+            ? campoAnexosHtml(
+                'PDF, Word, Excel, imagem, ZIP... ',
+                ' Os arquivos ficam guardados no sistema.'
+              )
             : '') +
 
           '<div class="linha-campos tres">' +
@@ -726,20 +928,18 @@
       return passaFiltroEvid(e, 'propria');
     }).map(function (e) {
       var link = urlSegura(e.link);
-      var anexo = e.arquivo && e.arquivo.url ? e.arquivo : null;
+      var anexos = anexosHtml(e);
       var vinc = vinculoEvidencia(e);
       return (
         '<li><span style="flex:1;min-width:0">' +
         (e.protocolo ? '<span class="etiqueta azul">' + esc(e.protocolo) + '</span> ' : '') +
         '<strong>' + esc(e.titulo) + '</strong>' +
         (e.refere_a ? ' <span class="etiqueta cinza">' + esc(e.refere_a) + '</span>' : '') +
-        (anexo
-          ? ' · <a href="' + esc(urlSegura(anexo.url)) + '" target="_blank" ' +
-            'rel="noopener noreferrer" class="quebra">baixar arquivo</a>'
-          : '') +
+        anexos.acao +
         (link ? ' · <a href="' + esc(link) + '" target="_blank" rel="noopener noreferrer" class="quebra">abrir link</a>' : '') +
+        anexos.bloco +
         '<br><span class="pequeno suave quebra">' +
-        (anexo ? esc(anexo.nome) + ' · ' + tamanhoLegivel(anexo.tamanho) + ' · ' : '') +
+        anexos.detalhe +
         (e.descricao ? esc(e.descricao) + ' · ' : '') +
         'ref. ' + dataBR(e.data_referencia) +
         (e.responsavel ? ' · ' + esc(e.responsavel) : '') +
@@ -1051,15 +1251,7 @@
         '<div class="campo"><label>Responsável</label>' +
         '<input type="text" name="responsavel"></div>' +
         '</div>' +
-        (podeAnexar()
-          ? '<div class="campo campo-arquivo">' +
-            '<label>Anexar arquivo</label>' +
-            '<input type="file" name="arquivo" accept="' + aceitaArquivos() + '">' +
-            '<span class="ajuda">Até 20 MB.</span>' +
-            '<div class="envio-barra" hidden><div class="envio-trilha">' +
-            '<span></span></div><span class="envio-texto"></span></div>' +
-            '</div>'
-          : '') +
+        (podeAnexar() ? campoAnexosHtml('', '') : '') +
         '<div class="linha-campos">' +
         '<div class="campo"><label>' +
         (podeAnexar() ? 'Ou link externo' : 'Link') + '</label>' +
@@ -1103,18 +1295,19 @@
     return saida;
   }
 
-  /** Registra a evidência, enviando o arquivo primeiro quando houver.
+  /** Registra a evidência, enviando os arquivos primeiro quando houver.
    *
    *  O envio é assíncrono, então a tela precisa dar sinal de vida: o botão
    *  trava, aparece a barra de progresso, e só depois o registro é criado.
-   *  A ordem importa — o documento só é gravado se o arquivo subir, para não
-   *  existir evidência apontando para arquivo que não chegou. */
+   *  A ordem importa — o documento só é gravado se TODOS os arquivos subirem,
+   *  para não existir evidência apontando para arquivo que não chegou. Os
+   *  arquivos sobem um por vez e viram UM registro: `arquivos` guarda todos e
+   *  `arquivo` o primeiro, que é o único campo que os registros antigos têm. */
   function enviarEvidencia(form, codigo) {
     var d = dadosDoForm(form);
     if (!d.titulo || !d.titulo.trim()) return;
 
-    var arquivos = d.arquivo;
-    var arquivo = arquivos && arquivos.length ? arquivos[0] : null;
+    var arquivos = listaDeArquivos(d.arquivo);
 
     // Evidência própria do parque não tem requisito do modelo: o atributo
     // fica ausente e guardamos `requisito: null`. É isso que faz o cálculo
@@ -1144,68 +1337,60 @@
     }
 
     // Sem arquivo: comportamento de sempre, direto.
-    if (!arquivo || !podeAnexar()) {
+    if (!arquivos.length || !podeAnexar()) {
       Store.criarEm('evidencias', registro);
       avisar('Evidência registrada.');
       renderizar();
       return;
     }
 
-    var problema = Store.conferirArquivo(arquivo);
+    // Nada sobe antes de o lote inteiro estar válido. Se algo estiver errado,
+    // o formulário fica como está, preenchido, para a pessoa corrigir.
+    var problema = problemaDoLote(arquivos);
     if (problema) {
       global.alert(problema);
       return;
     }
 
-    var botao = form.querySelector('button[type="submit"]');
-    var caixaBarra = form.querySelector('.envio-barra');
-    var preenchimento = caixaBarra && caixaBarra.querySelector('.envio-trilha > span');
-    var textoBarra = caixaBarra && caixaBarra.querySelector('.envio-texto');
+    var painel = painelDeEnvio(form, arquivos.length);
+    painel.travar();
 
-    function mostrarProgresso(pct) {
-      if (caixaBarra) caixaBarra.hidden = false;
-      if (preenchimento) preenchimento.style.width = pct + '%';
-      if (textoBarra) textoBarra.textContent = 'Enviando... ' + pct + '%';
-    }
-
-    if (botao) {
-      botao.disabled = true;
-      botao.textContent = 'Enviando arquivo...';
-    }
-    mostrarProgresso(0);
-
-    Store.enviarArquivo(codigo, registro.data_referencia, arquivo, mostrarProgresso)
-      .then(function (anexo) {
-        registro.arquivo = anexo;
+    enviarEmSequencia(arquivos, function (arquivo, indice, aoProgresso) {
+      return Store.enviarArquivo(codigo, registro.data_referencia, arquivo, aoProgresso, indice);
+    }, painel.progresso)
+      .then(function (anexos) {
+        registro.arquivos = anexos;
+        registro.arquivo = anexos[0];
         Store.criarEm('evidencias', registro);
-        avisar('Evidência registrada com o arquivo anexado.');
+        painel.liberar();
+        avisar(anexos.length > 1
+          ? 'Evidência registrada com ' + anexos.length + ' arquivos anexados.'
+          : 'Evidência registrada com o arquivo anexado.');
         renderizar();
       })
       .catch(function (erro) {
         console.error('Falha ao enviar o arquivo:', erro);
-        if (botao) {
-          botao.disabled = false;
-          botao.textContent = 'Registrar evidência';
-        }
-        if (textoBarra) textoBarra.textContent = '';
-        if (caixaBarra) caixaBarra.hidden = true;
+        painel.liberar();
 
+        var prefixo = arquivos.length > 1 ? textoFalhaDoLote(arquivos, painel.indice) : '';
         var codigoErro = String(erro && erro.code);
         if (codigoErro === 'storage/unauthorized') {
           global.alert(
+            prefixo +
             'Sem permissão para enviar arquivos.\n\n' +
             'Confirme que as regras do Storage foram publicadas e que seu ' +
             'perfil permite registrar.'
           );
         } else if (codigoErro === 'storage/retry-limit-exceeded') {
-          global.alert('O envio demorou demais. Verifique a conexão e tente de novo.');
+          global.alert(prefixo + 'O envio demorou demais. Verifique a conexão e tente de novo.');
         } else if (codigoErro === 'storage/unknown') {
           global.alert(
+            prefixo +
             'O armazenamento de arquivos ainda não está ativo neste projeto.\n\n' +
             'Ative o Storage no console do Firebase e publique as regras.'
           );
         } else {
-          global.alert('Não foi possível enviar o arquivo:\n\n' + (erro && erro.message));
+          global.alert(prefixo + 'Não foi possível enviar o arquivo:\n\n' + (erro && erro.message));
         }
       });
   }
@@ -1268,6 +1453,7 @@
           ev.preventDefault();
           enviarEvidencia(form, codigo);
         });
+        ligarCampoAnexos(form);
       }
     );
 
@@ -1279,6 +1465,7 @@
           ev.preventDefault();
           enviarEvidencia(form, codigo);
         });
+        ligarCampoAnexos(form);
       }
     );
 
@@ -1656,18 +1843,16 @@
     });
     var docsHtml = documentos.length
       ? '<ul class="lista">' + documentos.map(function (d) {
-          var anexo = d.arquivo && d.arquivo.url ? d.arquivo : null;
+          var anexos = anexosHtml(d);
           var link = urlSegura(d.link);
           return (
             '<li><span style="flex:1;min-width:0">' +
             '<strong>' + esc(d.titulo) + '</strong>' +
-            (anexo
-              ? ' · <a href="' + esc(urlSegura(anexo.url)) + '" target="_blank" ' +
-                'rel="noopener noreferrer" class="quebra">baixar arquivo</a>'
-              : '') +
+            anexos.acao +
             (link ? ' · <a href="' + esc(link) + '" target="_blank" rel="noopener noreferrer" class="quebra">abrir link</a>' : '') +
+            anexos.bloco +
             '<br><span class="pequeno suave quebra">' +
-            (anexo ? esc(anexo.nome) + ' · ' + tamanhoLegivel(anexo.tamanho) + ' · ' : '') +
+            anexos.detalhe +
             (d.descricao ? esc(d.descricao) + ' · ' : '') +
             'ref. ' + dataBR(d.data_referencia) +
             '</span></span>' +
@@ -1691,14 +1876,10 @@
       '<input type="date" name="data_referencia" value="' + hoje() + '"></div>' +
       '</div>' +
       (podeAnexar()
-        ? '<div class="campo campo-arquivo">' +
-          '<label>Anexar arquivo</label>' +
-          '<input type="file" name="arquivo" accept="' + aceitaArquivos() + '">' +
-          '<span class="ajuda">PDF, Word, Excel, imagem, ZIP... até 20 MB. ' +
-          'O arquivo fica guardado no sistema.</span>' +
-          '<div class="envio-barra" hidden><div class="envio-trilha">' +
-          '<span></span></div><span class="envio-texto"></span></div>' +
-          '</div>'
+        ? campoAnexosHtml(
+            'PDF, Word, Excel, imagem, ZIP... ',
+            ' Os arquivos ficam guardados no sistema.'
+          )
         : '') +
       '<div class="linha-campos">' +
       '<div class="campo"><label>' +
@@ -1877,6 +2058,7 @@
         ev.preventDefault();
         enviarDocumentoEmpreendimento(formDoc, id);
       });
+      ligarCampoAnexos(formDoc);
     }
 
     Array.prototype.forEach.call(
@@ -1886,10 +2068,14 @@
           if (!global.confirm('Remover este documento?')) return;
           var alvo = botao.getAttribute('data-remover-documento');
           var removido = (e.documentos || []).filter(function (x) { return x.id === alvo; })[0];
-          // Se o documento tinha arquivo no Storage, apaga para não deixar
-          // arquivo órfão ocupando espaço.
-          if (removido && removido.arquivo && removido.arquivo.path && Store.removerArquivo) {
-            Store.removerArquivo(removido.arquivo.path);
+          // Se o documento tinha arquivos no Storage, apaga todos para não
+          // deixar arquivo órfão ocupando espaço. caminhosDeAnexos aceita o
+          // formato antigo (um só, em `arquivo`) e o novo (`arquivos`), sem
+          // repetir o primeiro, que está nos dois.
+          if (removido && Store.removerArquivo) {
+            global.Regras.caminhosDeAnexos(removido).forEach(function (caminho) {
+              Store.removerArquivo(caminho);
+            });
           }
           Store.atualizarEm('empreendimentos', id, {
             documentos: (e.documentos || []).filter(function (x) { return x.id !== alvo; })
@@ -1910,11 +2096,12 @@
     var d = dadosDoForm(form);
     if (!d.titulo || !d.titulo.trim()) return;
 
-    var arquivos = d.arquivo;
-    var arquivo = arquivos && arquivos.length ? arquivos[0] : null;
+    var arquivos = listaDeArquivos(d.arquivo);
     var podeEmp = typeof Store.enviarArquivoEmpreendimento === 'function';
 
-    function gravar(anexo) {
+    // `anexos` vazio = documento só com link. Com arquivos, `arquivos` guarda
+    // todos e `arquivo` o primeiro (único campo dos documentos antigos).
+    function gravar(anexos) {
       var registro = {
         id: Store.novoId(),
         titulo: d.titulo.trim(),
@@ -1923,45 +2110,47 @@
         link: (d.link || '').trim(),
         criado_em: new Date().toISOString()
       };
-      if (anexo) registro.arquivo = anexo;
+      if (anexos.length) {
+        registro.arquivos = anexos;
+        registro.arquivo = anexos[0];
+      }
       var docs = (e.documentos || []).slice();
       docs.push(registro);
       Store.atualizarEm('empreendimentos', id, { documentos: docs });
-      avisar(anexo ? 'Documento anexado com o arquivo.' : 'Documento anexado.');
+      avisar(anexos.length > 1
+        ? 'Documento anexado com ' + anexos.length + ' arquivos.'
+        : anexos.length ? 'Documento anexado com o arquivo.' : 'Documento anexado.');
       renderizar();
     }
 
     // Sem arquivo (ou modo local): grava direto, só com o link.
-    if (!arquivo || !podeEmp) {
-      gravar(null);
+    if (!arquivos.length || !podeEmp) {
+      gravar([]);
       return;
     }
 
-    var problema = Store.conferirArquivo(arquivo);
+    // Nada sobe antes de o lote inteiro estar válido; o formulário fica
+    // preenchido para a pessoa corrigir.
+    var problema = problemaDoLote(arquivos);
     if (problema) { global.alert(problema); return; }
 
-    var botao = form.querySelector('button[type="submit"]');
-    var caixaBarra = form.querySelector('.envio-barra');
-    var preenchimento = caixaBarra && caixaBarra.querySelector('.envio-trilha > span');
-    var textoBarra = caixaBarra && caixaBarra.querySelector('.envio-texto');
+    var painel = painelDeEnvio(form, arquivos.length);
+    painel.travar();
 
-    function mostrarProgresso(pct) {
-      if (caixaBarra) caixaBarra.hidden = false;
-      if (preenchimento) preenchimento.style.width = pct + '%';
-      if (textoBarra) textoBarra.textContent = 'Enviando... ' + pct + '%';
-    }
-
-    if (botao) { botao.disabled = true; botao.textContent = 'Enviando arquivo...'; }
-    mostrarProgresso(0);
-
-    Store.enviarArquivoEmpreendimento(id, d.data_referencia, arquivo, mostrarProgresso)
-      .then(function (anexo) { gravar(anexo); })
+    enviarEmSequencia(arquivos, function (arquivo, indice, aoProgresso) {
+      return Store.enviarArquivoEmpreendimento(id, d.data_referencia, arquivo, aoProgresso, indice);
+    }, painel.progresso)
+      .then(function (anexos) {
+        painel.liberar();
+        gravar(anexos);
+      })
       .catch(function (erro) {
         console.error('Falha ao enviar o arquivo:', erro);
-        if (botao) { botao.disabled = false; botao.textContent = 'Anexar documento'; }
-        if (textoBarra) textoBarra.textContent = '';
-        if (caixaBarra) caixaBarra.hidden = true;
-        global.alert('Não foi possível enviar o arquivo:\n\n' + (erro && erro.message));
+        painel.liberar();
+        global.alert(
+          (arquivos.length > 1 ? textoFalhaDoLote(arquivos, painel.indice) : '') +
+          'Não foi possível enviar o arquivo:\n\n' + (erro && erro.message)
+        );
       });
   }
 
@@ -2352,7 +2541,7 @@
         if (evsAtv.length) {
           corpo = '<ul>' + evsAtv.map(function (e) {
             var link = urlSegura(e.link);
-            var anexo = e.arquivo && e.arquivo.url ? e.arquivo : null;
+            var anexos = anexosHtml(e);
             // Tipo do documento: mostrado quando informado; sem tipo, quem
             // edita pode classificar (evidência sem tipo não satisfaz nenhum
             // documento esperado).
@@ -2369,14 +2558,12 @@
               '<li>' +
               (e.protocolo ? '<span class="etiqueta azul">' + esc(e.protocolo) + '</span> ' : '') +
               '<strong>' + esc(e.titulo) + '</strong>' + tipoDoc +
-              (anexo
-                ? ' · <a href="' + esc(urlSegura(anexo.url)) + '" target="_blank" ' +
-                  'rel="noopener noreferrer" class="quebra">baixar arquivo</a>'
-                : '') +
+              anexos.acao +
               (link
                 ? ' · <a href="' + esc(link) + '" target="_blank" ' +
                   'rel="noopener noreferrer" class="quebra">abrir link</a>'
                 : '') +
+              anexos.bloco +
               '<br><span class="pequeno suave">Prática ' + esc(e.pratica || '—') +
               ' · ref. ' + dataBR(e.data_referencia) + '</span>' +
               '</li>'
@@ -2791,7 +2978,9 @@
                 '<ul class="lista">' +
                 outras.map(function (x) {
                   var l = urlSegura(x.link);
-                  var a = x.arquivo && x.arquivo.url ? urlSegura(x.arquivo.url) : '';
+                  var arquivosDoc = global.Regras.anexosDoRegistro(x).filter(function (a) {
+                    return urlSegura(a.url);
+                  });
                   var vinc = vinculoEvidencia(x);
                   return (
                     '<li><span style="flex:1;min-width:0">' +
@@ -2806,8 +2995,13 @@
                     (x.descricao ? ' · ' + esc(x.descricao) : '') +
                     (vinc ? ' · ' + vinc : '') +
                     '</span>' +
-                    (a ? '<br><a href="' + esc(a) + '" class="quebra">' +
-                      esc(x.arquivo.nome || 'arquivo') + '</a>' : '') +
+                    (arquivosDoc.length > 1
+                      ? ' <span class="etiqueta cinza">' + arquivosDoc.length + ' arquivos</span>'
+                      : '') +
+                    arquivosDoc.map(function (a) {
+                      return '<br><a href="' + esc(urlSegura(a.url)) + '" target="_blank" ' +
+                        'rel="noopener noreferrer" class="quebra">' + esc(a.nome || 'arquivo') + '</a>';
+                    }).join('') +
                     (l ? '<br><a href="' + esc(l) + '" class="quebra">' + esc(l) + '</a>' : '') +
                     '</span></li>'
                   );

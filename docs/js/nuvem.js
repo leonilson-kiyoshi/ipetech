@@ -200,17 +200,24 @@ function conferirArquivo(arquivo) {
  *
  *      evidencias/CERNE1/1.1.1/2026/lista-de-presenca.pdf
  */
-function caminhoDoAnexo(codigoPratica, dataReferencia, nomeArquivo) {
+function caminhoDoAnexo(codigoPratica, dataReferencia, nomeArquivo, indice) {
   const item = Regras.buscarPratica(codigoPratica);
   const nivel = item ? 'CERNE' + item.nivel.numero : 'sem-nivel';
   const ano = String(dataReferencia || '').slice(0, 4) ||
     String(new Date().getFullYear());
   // Prefixo de tempo evita que dois arquivos de mesmo nome se sobreponham.
-  const marca = Date.now().toString(36);
+  // Num lote de vários arquivos, o índice garante caminhos distintos mesmo
+  // quando os nomes são iguais e o relógio não avançou entre um envio e outro.
+  const marca = Date.now().toString(36) + sufixoDoLote(indice);
   return (
     'evidencias/' + nivel + '/' + codigoPratica + '/' + ano + '/' +
     marca + '-' + nomeSeguro(nomeArquivo)
   );
+}
+
+/** "-2" para o segundo arquivo do lote (indice 1); vazio sem índice. */
+function sufixoDoLote(indice) {
+  return Number.isInteger(indice) && indice >= 0 ? '-' + (indice + 1) : '';
 }
 
 /** Caminho do anexo de um documento do empreendimento (Fase 2).
@@ -219,10 +226,10 @@ function caminhoDoAnexo(codigoPratica, dataReferencia, nomeArquivo) {
  *
  *  Estrutura espelhada nas regras do Storage (empreendimentos/{id}/{ano}/
  *  {arquivo}), com as mesmas validações de tamanho e tipo das evidências. */
-function caminhoDoDocumentoEmpreendimento(idEmpreendimento, dataReferencia, nomeArquivo) {
+function caminhoDoDocumentoEmpreendimento(idEmpreendimento, dataReferencia, nomeArquivo, indice) {
   const ano = String(dataReferencia || '').slice(0, 4) ||
     String(new Date().getFullYear());
-  const marca = Date.now().toString(36);
+  const marca = Date.now().toString(36) + sufixoDoLote(indice);
   return (
     'empreendimentos/' + idEmpreendimento + '/' + ano + '/' +
     marca + '-' + nomeSeguro(nomeArquivo)
@@ -299,16 +306,19 @@ async function enviarParaCaminho(caminho, arquivo, aoProgresso, metadados) {
 }
 
 /** Envia o arquivo de uma EVIDÊNCIA e devolve os dados para guardar junto dela.
- *  `aoProgresso` recebe o percentual (0 a 100), para a tela dar sinal de vida. */
-async function enviarArquivo(codigoPratica, dataReferencia, arquivo, aoProgresso) {
-  const caminho = caminhoDoAnexo(codigoPratica, dataReferencia, arquivo.name);
+ *  `aoProgresso` recebe o percentual (0 a 100), para a tela dar sinal de vida.
+ *  `indice` (opcional) é a posição do arquivo num lote enviado de uma vez. */
+async function enviarArquivo(codigoPratica, dataReferencia, arquivo, aoProgresso, indice) {
+  const caminho = caminhoDoAnexo(codigoPratica, dataReferencia, arquivo.name, indice);
   return enviarParaCaminho(caminho, arquivo, aoProgresso, { pratica: codigoPratica });
 }
 
 /** Envia o arquivo de um DOCUMENTO de empreendimento (Fase 2) e devolve os
  *  dados do anexo no formato {url, nome, path, tamanho, tipo}. */
-async function enviarArquivoEmpreendimento(idEmpreendimento, dataReferencia, arquivo, aoProgresso) {
-  const caminho = caminhoDoDocumentoEmpreendimento(idEmpreendimento, dataReferencia, arquivo.name);
+async function enviarArquivoEmpreendimento(idEmpreendimento, dataReferencia, arquivo, aoProgresso, indice) {
+  const caminho = caminhoDoDocumentoEmpreendimento(
+    idEmpreendimento, dataReferencia, arquivo.name, indice
+  );
   const anexo = await enviarParaCaminho(
     caminho, arquivo, aoProgresso, { empreendimento: idEmpreendimento }
   );
@@ -647,11 +657,13 @@ function atualizarEm(lista, id, dados) {
 
 function removerEm(lista, id) {
   const alvo = (estado[lista] || []).filter((r) => r.id === id)[0];
-  // Ao remover uma evidência, o arquivo anexado também sai do bucket.
+  // Ao remover uma evidência, os arquivos anexados também saem do bucket.
   // Sem isso o parque continuaria pagando armazenamento de arquivo órfão,
-  // que ninguém mais alcança pelo sistema.
-  if (lista === 'evidencias' && alvo && alvo.arquivo && alvo.arquivo.caminho) {
-    removerArquivo(alvo.arquivo.caminho);
+  // que ninguém mais alcança pelo sistema. A lista de caminhos vem de
+  // Regras.caminhosDeAnexos: cobre registros com vários arquivos e os antigos
+  // (um só em `arquivo`), sem repetir o primeiro.
+  if (lista === 'evidencias' && alvo) {
+    Regras.caminhosDeAnexos(alvo).forEach(removerArquivo);
   }
   deleteDoc(doc(db, lista, id))
     .then(() => registrarHistorico(lista, id, 'remover', resumoHistorico(lista, alvo)))

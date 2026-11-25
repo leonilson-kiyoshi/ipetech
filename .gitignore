@@ -56,6 +56,11 @@ backups/
 /t3.txt
 /_*.txt
 
+# Artefatos de execução dos fluxos de trabalho do agente (notas de tarefa,
+# pareceres de revisão). São registro de como o trabalho foi conduzido, não
+# parte do sistema, e o repositório é público.
+.agents/
+
 # ----------------------------------------------------------------------------
 # PDFs da metodologia CERNE (manuais, termos de referência, sumários e as
 # apresentações das sprints).
@@ -74,3 +79,17 @@ backups/
 # media/, que já é ignorada acima.
 # ----------------------------------------------------------------------------
 /*.pdf
+
+# ----------------------------------------------------------------------------
+# Documentos do registro de software no INPI
+#
+# Formulário da UFLA, anexos de classificação e a versão preenchida. Ficam de
+# fora porque o formulário contém dados pessoais dos autores (CPF, endereço
+# residencial, telefone) e a declaração de cessão de direitos — nada disso
+# deve ir para um repositório público, e histórico de git não se apaga fácil.
+#
+# As duas grafias estão listadas de propósito: a pasta foi criada como
+# "sofware" e a regra continua valendo se o nome for corrigido.
+# ----------------------------------------------------------------------------
+/Registro de sofware/
+/Registro de software/

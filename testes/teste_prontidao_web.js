@@ -694,5 +694,23 @@ verificar('evidência sem arquivo conta igual à com arquivos',
 verificar('a regra de prontidão não menciona anexos nem arquivos',
   !/anexo|arquivo/i.test(fonteRegra));
 
+// Apagar o último anexo na edição deixa o registro com `arquivos` vazio e
+// `arquivo` nulo. A evidência continua contando para o requisito: a regra
+// olha o REGISTRO, não os arquivos — então apagar anexo nunca derruba uma
+// prática que estava completa.
+Store.limpar();
+const evAnexoApagado = Store.criarEm('evidencias', {
+  pratica: praticaQ.codigo, requisito: reqQ.id, titulo: 'anexo apagado',
+  data_referencia: '2026-01-10', arquivo: anexoA, arquivos: [anexoA]
+});
+Store.atualizarEm('evidencias', evAnexoApagado.id, { arquivos: [], arquivo: null });
+const evSemAnexo = Store.estado().evidencias[0];
+verificar('apagar o último anexo não muda as faltas da prática',
+  JSON.stringify(Store.faltasDaPratica(praticaQ)) === faltasMuitos,
+  JSON.stringify(Store.faltasDaPratica(praticaQ)));
+verificar('o registro sem anexo não aponta para arquivo nenhum',
+  Regras.anexosDoRegistro(evSemAnexo).length === 0 &&
+  Regras.caminhosDeAnexos(evSemAnexo).length === 0);
+
 console.log('\n' + (falhas === 0 ? 'TODOS OS TESTES PASSARAM' : falhas + ' TESTE(S) FALHARAM'));
 process.exit(falhas === 0 ? 0 : 1);

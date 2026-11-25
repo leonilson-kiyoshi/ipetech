@@ -165,7 +165,14 @@
     data_graduacao: 'Data de graduação', data_referencia: 'Data de referência',
     link: 'Link', requisito: 'Requisito', prazo: 'Prazo',
     observacoes: 'Observações', observacao: 'Observação',
-    avaliacoes: 'Avaliações', documentos: 'Documentos'
+    avaliacoes: 'Avaliações', documentos: 'Documentos',
+    // Campos que a edição de evidências, medições, revisões, planos e
+    // avaliações de eixo pode alterar. Só rótulo: entram no histórico para
+    // a trilha dizer o que mudou em bom português.
+    refere_a: 'A que se refere', valor: 'Valor', data: 'Data',
+    periodo: 'Período avaliado', eficiencia: 'Eficiência',
+    eficacia: 'Eficácia', efetividade: 'Efetividade',
+    necessita_ajustes: 'Necessita ajustes', eixo: 'Eixo', nota: 'Nota'
   };
 
   function rotuloDe(lista, valor) {

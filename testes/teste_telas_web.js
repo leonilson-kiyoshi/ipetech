@@ -2097,6 +2097,908 @@ function esperarPromessas() {
   html = renderizarRota('#/pratica/1.1.1');
   verificar('sem armazenamento, os campos de arquivo somem de novo', html.indexOf('type="file"') === -1);
 
+  /* -------------------------------------------------------------------------
+     Editar os seis tipos de registro que antes só podiam ser removidos:
+     evidência de requisito, evidência própria, medição, revisão crítica,
+     plano de ação, avaliação de eixo e documento do empreendimento.
+
+     Para cada tipo: o botão Editar aparece ao lado do Remover para quem pode
+     editar e não aparece no modo consulta; o formulário abre preenchido com
+     os valores atuais; e a gravação (por Store.atualizarEm) altera o registro
+     sem tocar nos anexos, deixando-o visível na tela.
+  ------------------------------------------------------------------------- */
+
+  console.log('\n35) Editar os registros que antes só podiam ser removidos');
+
+  Store.limpar();
+  Store.definirPerfil('gestor');
+  pararSimulacao();
+
+  const anexoEv = {
+    url: 'https://armazem.test/ata.pdf', nome: 'ata.pdf', tamanho: 1024,
+    tipo: 'application/pdf', caminho: 'evidencias/CERNE1/1.1.1/2026/ata.pdf'
+  };
+  const anexoDoc = (nome) => ({
+    url: 'https://armazem.test/' + nome, nome: nome, tamanho: 2048,
+    tipo: 'application/pdf', path: 'empreendimentos/x/2026/' + nome
+  });
+
+  Store.criarEm('empreendimentos', {
+    nome: 'Startup Edita', setor: 'TIC', estagio: 'ideia', situacao: 'apoiado'
+  });
+  const empEd = Store.estado().empreendimentos[0];
+  Store.criarEm('atividades', {
+    tipo: 'evento', titulo: 'Oficina de edição', descricao: '',
+    data_realizacao: '2026-03-10', local: 'Sala 1', responsavel: 'Ana',
+    pratica: '1.1.1', empreendimento: '', programa: ''
+  });
+  const atvEd = Store.estado().atividades[0];
+
+  Store.criarEm('evidencias', {
+    pratica: '1.1.1', requisito: reqObrigatorio.id, titulo: 'Ata da oficina',
+    data_referencia: '2026-03-10', responsavel: 'Ana', descricao: 'ata assinada',
+    link: 'https://exemplo.test/ata', empreendimento: empEd.id,
+    programa: 'MUDA 2026/1', atividade: atvEd.id, tipo_documento: 'ata',
+    arquivo: anexoEv, arquivos: [anexoEv]
+  });
+  const evReq = Store.estado().evidencias[0];
+  const protoEvReq = evReq.protocolo;
+  Store.criarEm('evidencias', {
+    pratica: '1.1.1', requisito: null, refere_a: 'iniciativa própria',
+    titulo: 'Programa de mentoria', data_referencia: '2026-04-01',
+    responsavel: 'Bruno', descricao: '', link: ''
+  });
+  const evPropria = Store.estado().evidencias[1];
+  const metricaEd = praticaTeste.metricas[0];
+  Store.criarEm('medicoes', {
+    pratica: '1.1.1', metrica: metricaEd.id, valor: 12, data: '2026-05-02',
+    observacao: 'primeira contagem'
+  });
+  const medEd = Store.estado().medicoes[0];
+  Store.criarEm('revisoes', {
+    pratica: '1.1.1', data: '2026-06-03', periodo: '1º semestre de 2026',
+    eficiencia: 'dentro do previsto', eficacia: 'metas atingidas',
+    efetividade: 'resultado percebido', necessita_ajustes: false,
+    observacoes: 'sem ressalvas'
+  });
+  const revEd = Store.estado().revisoes[0];
+  Store.criarEm('planos', {
+    pratica: '1.1.1', descricao: 'Ampliar divulgação', responsavel: 'Ana',
+    prazo: '2026-07-30', situacao: 'aberto'
+  });
+  const planoEd = Store.estado().planos[0];
+  const avalEd = {
+    id: 'av-edita', eixo: 'tecnologia', nota: 3, data: '2026-02-02',
+    observacao: 'protótipo validado'
+  };
+  const docEd = {
+    id: 'doc-edita', titulo: 'Pitch de seleção', data_referencia: '2026-02-03',
+    link: 'https://exemplo.test/pitch', descricao: 'apresentação',
+    criado_em: '2026-02-03T00:00:00.000Z',
+    arquivo: anexoDoc('pitch.pdf'),
+    arquivos: [anexoDoc('pitch.pdf'), anexoDoc('planilha.pdf')]
+  };
+  Store.atualizarEm('empreendimentos', empEd.id, {
+    avaliacoes: [avalEd], documentos: [docEd]
+  });
+
+  const CLASSE_LISTA = 'botao secundario pequeno nao-imprimir';
+  const CLASSE_TABELA = 'botao secundario pequeno';
+
+  /** O par "Editar + Remover" do mesmo registro, lado a lado, como a tela
+   *  desenha: prova que o botão novo ficou ao lado do que já existia. */
+  const parEditarRemover = (tipo, id, classe) =>
+    '<button type="button" class="' + classe + '" data-editar-' + tipo + '="' + id +
+    '">Editar</button> <button type="button" class="' + classe + '" data-remover-' +
+    tipo + '="' + id + '">Remover</button>';
+
+  /** Simula o clique no "Editar" do registro (o DOM dos testes não dispara
+   *  eventos) e devolve o botão falso, já com a tela redesenhada. */
+  function clicarEditar(tipo, id, rota) {
+    const bot = botaoFalso({ ['data-editar-' + tipo]: id });
+    simularElementos({ ['[data-editar-' + tipo + ']']: [bot] });
+    renderizarRota(rota);
+    bot.ao_click();
+    return bot;
+  }
+
+  /** Recorte do formulário de edição aberto. A tela também traz os
+   *  formulários de cadastro, então conferir "o que NÃO está no formulário"
+   *  exige olhar só o trecho dele. */
+  const recorteForm = (texto, idForm) => {
+    const inicio = texto.indexOf('id="' + idForm + '"');
+    if (inicio === -1) return '';
+    const fim = texto.indexOf('</form>', inicio);
+    return texto.slice(inicio, fim === -1 ? texto.length : fim);
+  };
+
+  /** A tag <details ...> que envolve o formulário aberto — a última antes
+   *  dele no HTML. Um <details> sem `open` esconde o que tem dentro, então
+   *  estar no HTML não basta: o formulário só aparece na tela se essa tag
+   *  tiver ` open`. */
+  const detailsDoForm = (texto, idForm) => {
+    const inicio = texto.indexOf('id="' + idForm + '"');
+    if (inicio === -1) return '(formulário não está no HTML)';
+    const abre = texto.lastIndexOf('<details', inicio);
+    if (abre === -1) return '';
+    return texto.slice(abre, texto.indexOf('>', abre) + 1);
+  };
+
+  /** Troca os valores do formulário aberto e envia. */
+  function enviarEdicao(form, valores, extras) {
+    form.elements = Object.keys(valores)
+      .map((nome) => ({ name: nome, value: valores[nome] }))
+      .concat(extras || []);
+    chamadas.length = 0;
+    form.ao_submit(evento);
+  }
+
+  // --- (1) o botão aparece ao lado do Remover, nos seis tipos -------------
+
+  html = renderizarRota('#/pratica/1.1.1');
+  verificar('evidência de requisito: Editar ao lado de Remover',
+    html.indexOf(parEditarRemover('evidencia', evReq.id, CLASSE_LISTA)) !== -1);
+  verificar('evidência própria do parque: Editar ao lado de Remover',
+    html.indexOf(parEditarRemover('evidencia', evPropria.id, CLASSE_LISTA)) !== -1);
+  verificar('medição: Editar ao lado de Remover',
+    html.indexOf(parEditarRemover('medicao', medEd.id, CLASSE_TABELA)) !== -1);
+  verificar('revisão crítica: Editar ao lado de Remover',
+    html.indexOf(parEditarRemover('revisao', revEd.id, CLASSE_LISTA)) !== -1);
+  verificar('plano de ação: Editar ao lado de Remover',
+    html.indexOf(parEditarRemover('plano', planoEd.id, CLASSE_LISTA)) !== -1);
+  verificar('sem edição aberta, nenhum formulário de edição na tela da prática',
+    ['evidencia', 'medicao', 'revisao', 'plano']
+      .every((t) => html.indexOf('form-' + t + '-editar') === -1));
+
+  html = renderizarRota('#/empreendimento/' + empEd.id);
+  verificar('avaliação de eixo: Editar ao lado de Remover',
+    html.indexOf(parEditarRemover('avaliacao', avalEd.id, CLASSE_TABELA)) !== -1);
+  verificar('documento do empreendimento: Editar ao lado de Remover',
+    html.indexOf(parEditarRemover('documento', docEd.id, CLASSE_LISTA)) !== -1);
+  verificar('sem edição aberta, nenhum formulário de edição no empreendimento',
+    html.indexOf('form-avaliacao-editar') === -1 &&
+    html.indexOf('form-documento-editar') === -1);
+
+  // --- (2) modo somente leitura não vê nenhum dos botões novos ------------
+
+  Store.definirPerfil('consulta');
+  html = renderizarRota('#/pratica/1.1.1');
+  verificar('(i) consulta: sem Editar em evidência, medição, revisão e plano',
+    ['evidencia', 'medicao', 'revisao', 'plano']
+      .every((t) => html.indexOf('data-editar-' + t) === -1));
+  verificar('(i) consulta: continua sem os botões de remover, como antes',
+    html.indexOf('data-remover-evidencia') === -1 &&
+    html.indexOf('data-remover-medicao') === -1);
+  html = renderizarRota('#/empreendimento/' + empEd.id);
+  verificar('(i) consulta: sem Editar na avaliação de eixo nem no documento',
+    html.indexOf('data-editar-avaliacao') === -1 &&
+    html.indexOf('data-editar-documento') === -1);
+  verificar('(i) consulta: os registros continuam visíveis',
+    html.indexOf('Pitch de seleção') !== -1 &&
+    html.indexOf('protótipo validado') !== -1);
+  Store.definirPerfil('gestor');
+
+  // --- (3) evidência de requisito ----------------------------------------
+
+  const faltasAntesEdicao = JSON.stringify(_info('1.1.1').faltas);
+  const formEvEd = formFalso('form-evidencia-editar', {});
+  const botCancelarEv = documento.getElementById('btn-ev-cancelar');
+  botCancelarEv.addEventListener = (nome, fn) => { botCancelarEv['ao_' + nome] = fn; };
+
+  clicarEditar('evidencia', evReq.id, '#/pratica/1.1.1');
+  html = conteudo.innerHTML;
+  verificar('evidência: o formulário abre preenchido com os valores atuais',
+    html.indexOf('id="form-evidencia-editar"') !== -1 &&
+    html.indexOf('value="Ata da oficina"') !== -1 &&
+    html.indexOf('value="2026-03-10"') !== -1 &&
+    html.indexOf('value="Ana"') !== -1 &&
+    html.indexOf('value="ata assinada"') !== -1 &&
+    html.indexOf('value="https://exemplo.test/ata"') !== -1 &&
+    html.indexOf('value="MUDA 2026/1"') !== -1 &&
+    html.indexOf('<option value="' + empEd.id + '" selected>') !== -1 &&
+    html.indexOf('<option value="' + atvEd.id + '" selected>') !== -1 &&
+    html.indexOf('<option value="ata" selected>') !== -1, html.slice(0, 200));
+  verificar('evidência: o formulário traz Salvar e Cancelar',
+    html.indexOf('Salvar alterações') !== -1 && html.indexOf('id="btn-ev-cancelar"') !== -1);
+  // O requisito atendido é desenhado fechado; em edição precisa abrir, senão
+  // o formulário fica escondido e o botão parece não funcionar.
+  verificar('evidência de requisito: o bloco do requisito abre com o formulário',
+    detailsDoForm(html, 'form-evidencia-editar').indexOf(' open') !== -1,
+    detailsDoForm(html, 'form-evidencia-editar'));
+  verificar('evidência: o formulário mostra o protocolo, que não muda ao editar',
+    html.indexOf(protoEvReq) !== -1 && html.indexOf('não mudam ao editar') !== -1 &&
+    html.indexOf('name="protocolo"') === -1);
+  // Sem armazenamento (modo local) não há onde enviar nem o que apagar: o
+  // formulário só conta os anexos. A troca de arquivo é verificada na seção 36.
+  verificar('evidência: sem armazenamento, o formulário só conta os anexos',
+    html.indexOf('1 arquivo anexado a este registro.') !== -1 &&
+    html.indexOf('A edição altera só as informações.') !== -1 &&
+    recorteForm(html, 'form-evidencia-editar').indexOf('name="arquivo"') === -1 &&
+    html.indexOf('data-apagar-anexo-evidencia') === -1);
+  verificar('evidência de requisito: o formulário de edição não oferece "A que se refere"',
+    recorteForm(html, 'form-evidencia-editar').indexOf('name="refere_a"') === -1);
+
+  enviarEdicao(formEvEd, {
+    titulo: 'Ata da oficina (revisada)', data_referencia: '2026-03-11',
+    link: 'https://exemplo.test/ata-v2', responsavel: 'Ana e Bruno',
+    descricao: 'ata assinada e protocolada', empreendimento: '',
+    programa: 'MUDA 2026/2', atividade: atvEd.id, tipo_documento: 'relatorio'
+  });
+  const evReqDepois = Store.estado().evidencias.filter((x) => x.id === evReq.id)[0];
+  verificar('evidência: a gravação passa por atualizarEm em evidencias',
+    chamadas.length === 1 && chamadas[0].lista === 'evidencias' &&
+    chamadas[0].id === evReq.id, JSON.stringify(chamadas));
+  verificar('evidência: a gravação não envia anexo, protocolo nem requisito',
+    !('arquivo' in chamadas[0].dados) && !('arquivos' in chamadas[0].dados) &&
+    !('protocolo' in chamadas[0].dados) && !('requisito' in chamadas[0].dados) &&
+    semUndefined(chamadas[0].bruto));
+  verificar('evidência: o registro fica com os valores novos',
+    evReqDepois.titulo === 'Ata da oficina (revisada)' &&
+    evReqDepois.data_referencia === '2026-03-11' &&
+    evReqDepois.responsavel === 'Ana e Bruno' &&
+    evReqDepois.link === 'https://exemplo.test/ata-v2' &&
+    evReqDepois.programa === 'MUDA 2026/2' &&
+    evReqDepois.tipo_documento === 'relatorio' &&
+    evReqDepois.empreendimento === '');
+  verificar('evidência: protocolo, requisito e anexo continuam no registro',
+    evReqDepois.protocolo === protoEvReq &&
+    evReqDepois.requisito === reqObrigatorio.id &&
+    (evReqDepois.arquivos || []).length === 1 &&
+    evReqDepois.arquivo.nome === 'ata.pdf');
+  verificar('evidência: o formulário fecha e a lista mostra o título novo',
+    conteudo.innerHTML.indexOf('form-evidencia-editar') === -1 &&
+    conteudo.innerHTML.indexOf('Ata da oficina (revisada)') !== -1);
+  verificar('evidência: avisa que foi atualizada',
+    torrada() === 'Evidência atualizada.', torrada());
+  verificar('evidência: editar os metadados não muda as faltas da prática',
+    JSON.stringify(_info('1.1.1').faltas) === faltasAntesEdicao);
+
+  // Cancelar fecha o formulário sem gravar nada.
+  clicarEditar('evidencia', evReq.id, '#/pratica/1.1.1');
+  verificar('evidência: reabre o formulário',
+    conteudo.innerHTML.indexOf('form-evidencia-editar') !== -1);
+  chamadas.length = 0;
+  botCancelarEv.ao_click();
+  verificar('evidência: Cancelar fecha o formulário sem gravar',
+    conteudo.innerHTML.indexOf('form-evidencia-editar') === -1 && chamadas.length === 0);
+
+  // O manipulador reconfere o perfil: clique e envio atrasados não gravam.
+  const botEvAntigo = clicarEditar('evidencia', evReq.id, '#/pratica/1.1.1');
+  botCancelarEv.ao_click();
+  Store.definirPerfil('consulta');
+  chamadas.length = 0;
+  botEvAntigo.ao_click();
+  formEvEd.ao_submit(evento);
+  verificar('(i) consulta: um envio atrasado do formulário não grava', chamadas.length === 0);
+  Store.definirPerfil('gestor');
+  html = renderizarRota('#/pratica/1.1.1');
+  verificar('(i) consulta: o clique bloqueado não deixou edição aberta',
+    html.indexOf('form-evidencia-editar') === -1);
+
+  // --- (4) evidência própria do parque -----------------------------------
+
+  clicarEditar('evidencia', evPropria.id, '#/pratica/1.1.1');
+  html = conteudo.innerHTML;
+  verificar('evidência própria: o formulário abre com "A que se refere" preenchido',
+    html.indexOf('id="form-evidencia-editar"') !== -1 &&
+    html.indexOf('value="Programa de mentoria"') !== -1 &&
+    html.indexOf('name="refere_a" value="iniciativa própria"') !== -1 &&
+    html.indexOf('value="Bruno"') !== -1);
+  verificar('evidência própria: sem anexo, o formulário diz que não há arquivo',
+    html.indexOf('Nenhum arquivo anexado a este registro.') !== -1);
+
+  enviarEdicao(formEvEd, {
+    titulo: 'Programa de mentoria do IpêTech',
+    refere_a: 'iniciativa própria do parque', data_referencia: '2026-04-02',
+    link: '', responsavel: 'Bruno', descricao: 'mentoria mensal',
+    empreendimento: empEd.id, programa: '', atividade: '', tipo_documento: ''
+  });
+  const evPropriaDepois = Store.estado().evidencias.filter((x) => x.id === evPropria.id)[0];
+  verificar('evidência própria: grava refere_a e o vínculo com a startup',
+    chamadas.length === 1 && chamadas[0].dados.refere_a === 'iniciativa própria do parque' &&
+    evPropriaDepois.empreendimento === empEd.id && evPropriaDepois.requisito === null,
+    JSON.stringify(chamadas));
+  verificar('evidência própria: continua na tela, com o título novo',
+    conteudo.innerHTML.indexOf('Programa de mentoria do IpêTech') !== -1 &&
+    conteudo.innerHTML.indexOf('form-evidencia-editar') === -1);
+
+  // --- (5) medição -------------------------------------------------------
+
+  const formMedEd = formFalso('form-medicao-editar', {});
+  clicarEditar('medicao', medEd.id, '#/pratica/1.1.1');
+  html = conteudo.innerHTML;
+  verificar('medição: o formulário abre preenchido',
+    html.indexOf('id="form-medicao-editar"') !== -1 &&
+    html.indexOf('name="valor" step="any" required value="12"') !== -1 &&
+    html.indexOf('value="2026-05-02"') !== -1 &&
+    html.indexOf('value="primeira contagem"') !== -1 &&
+    html.indexOf('id="btn-med-cancelar"') !== -1, html.slice(0, 200));
+  verificar('medição: o bloco da métrica abre com o formulário',
+    detailsDoForm(html, 'form-medicao-editar').indexOf(' open') !== -1,
+    detailsDoForm(html, 'form-medicao-editar'));
+
+  enviarEdicao(formMedEd, {
+    valor: '34', data: '2026-05-03', observacao: 'contagem corrigida'
+  });
+  const medDepois = Store.estado().medicoes[0];
+  verificar('medição: grava por atualizarEm, com o valor como número',
+    chamadas.length === 1 && chamadas[0].lista === 'medicoes' &&
+    chamadas[0].id === medEd.id && medDepois.valor === 34 &&
+    medDepois.data === '2026-05-03' && medDepois.observacao === 'contagem corrigida',
+    JSON.stringify(chamadas));
+  verificar('medição: a tabela mostra o valor novo e o formulário fecha',
+    conteudo.innerHTML.indexOf('<td class="numero">34 pessoas</td>') !== -1 &&
+    conteudo.innerHTML.indexOf('form-medicao-editar') === -1);
+  verificar('medição: avisa que foi atualizada',
+    torrada() === 'Medição atualizada.', torrada());
+
+  // --- (6) revisão crítica -----------------------------------------------
+
+  const formRevEd = formFalso('form-revisao-editar', {});
+  clicarEditar('revisao', revEd.id, '#/pratica/1.1.1');
+  html = conteudo.innerHTML;
+  verificar('revisão: o formulário abre preenchido',
+    html.indexOf('id="form-revisao-editar"') !== -1 &&
+    html.indexOf('value="2026-06-03"') !== -1 &&
+    html.indexOf('value="1º semestre de 2026"') !== -1 &&
+    html.indexOf('>dentro do previsto</textarea>') !== -1 &&
+    html.indexOf('>metas atingidas</textarea>') !== -1 &&
+    html.indexOf('>resultado percebido</textarea>') !== -1 &&
+    html.indexOf('>sem ressalvas</textarea>') !== -1 &&
+    html.indexOf('id="btn-rev-cancelar"') !== -1, html.slice(0, 200));
+  verificar('revisão: a caixa "Necessita ajustes" reflete o registro (desmarcada)',
+    html.indexOf('name="necessita_ajustes">') !== -1 &&
+    html.indexOf('name="necessita_ajustes" checked>') === -1);
+  verificar('revisão: o bloco da revisão abre com o formulário',
+    detailsDoForm(html, 'form-revisao-editar').indexOf(' open') !== -1,
+    detailsDoForm(html, 'form-revisao-editar'));
+
+  enviarEdicao(formRevEd, {
+    data: '2026-06-04', periodo: '1º semestre de 2026 (revisado)',
+    eficiencia: 'dentro do previsto', eficacia: 'metas atingidas',
+    efetividade: 'resultado percebido', observacoes: 'com ressalva'
+  }, [{ name: 'necessita_ajustes', type: 'checkbox', checked: true }]);
+  const revDepois = Store.estado().revisoes[0];
+  verificar('revisão: grava por atualizarEm a marcação e o período novos',
+    chamadas.length === 1 && chamadas[0].lista === 'revisoes' &&
+    chamadas[0].id === revEd.id && revDepois.necessita_ajustes === true &&
+    revDepois.periodo === '1º semestre de 2026 (revisado)' &&
+    revDepois.data === '2026-06-04' && revDepois.observacoes === 'com ressalva',
+    JSON.stringify(chamadas));
+  verificar('revisão: a tela mostra "Requer ajustes" e o formulário fecha',
+    conteudo.innerHTML.indexOf('Requer ajustes') !== -1 &&
+    conteudo.innerHTML.indexOf('form-revisao-editar') === -1);
+
+  // --- (7) plano de ação -------------------------------------------------
+
+  const formPlanoEd = formFalso('form-plano-editar', {});
+  clicarEditar('plano', planoEd.id, '#/pratica/1.1.1');
+  html = conteudo.innerHTML;
+  verificar('plano: o formulário abre preenchido',
+    html.indexOf('id="form-plano-editar"') !== -1 &&
+    html.indexOf('>Ampliar divulgação</textarea>') !== -1 &&
+    html.indexOf('value="2026-07-30"') !== -1 &&
+    html.indexOf('<option value="aberto" selected>') !== -1 &&
+    html.indexOf('id="btn-plano-cancelar"') !== -1, html.slice(0, 200));
+
+  enviarEdicao(formPlanoEd, {
+    descricao: 'Ampliar divulgação nas escolas', responsavel: 'Carla',
+    prazo: '2026-08-30', situacao: 'em_andamento'
+  });
+  const planoDepois = Store.estado().planos[0];
+  verificar('plano: grava por atualizarEm a situação, o prazo e o responsável',
+    chamadas.length === 1 && chamadas[0].lista === 'planos' &&
+    chamadas[0].id === planoEd.id && planoDepois.situacao === 'em_andamento' &&
+    planoDepois.prazo === '2026-08-30' && planoDepois.responsavel === 'Carla',
+    JSON.stringify(chamadas));
+  verificar('plano: a lista mostra a descrição nova e a etiqueta Em andamento',
+    conteudo.innerHTML.indexOf('Ampliar divulgação nas escolas') !== -1 &&
+    conteudo.innerHTML.indexOf('>Em andamento</span>') !== -1 &&
+    conteudo.innerHTML.indexOf('form-plano-editar') === -1);
+
+  // --- (8) avaliação de eixo (dentro do empreendimento) ------------------
+
+  const formAvalEd = formFalso('form-avaliacao-editar', {});
+  clicarEditar('avaliacao', avalEd.id, '#/empreendimento/' + empEd.id);
+  html = conteudo.innerHTML;
+  verificar('avaliação: o formulário abre preenchido',
+    html.indexOf('id="form-avaliacao-editar"') !== -1 &&
+    html.indexOf('<option value="tecnologia" selected>') !== -1 &&
+    html.indexOf('<input type="number" name="nota" min="0" max="5" step="1" value="3" required>') !== -1 &&
+    html.indexOf('value="2026-02-02"') !== -1 &&
+    html.indexOf('value="protótipo validado"') !== -1 &&
+    html.indexOf('id="btn-av-cancelar"') !== -1, html.slice(0, 200));
+
+  enviarEdicao(formAvalEd, {
+    eixo: 'mercado', nota: '5', data: '2026-02-05', observacao: 'tração comprovada'
+  });
+  const avalDepois = (Store.empreendimentoPorId(empEd.id).avaliacoes || [])[0];
+  verificar('avaliação: grava o array avaliacoes em empreendimentos',
+    chamadas.length === 1 && chamadas[0].lista === 'empreendimentos' &&
+    chamadas[0].id === empEd.id &&
+    Object.keys(chamadas[0].dados).join(',') === 'avaliacoes' &&
+    chamadas[0].dados.avaliacoes.length === 1, JSON.stringify(chamadas));
+  verificar('avaliação: o item mantém o id e recebe os valores novos',
+    avalDepois.id === avalEd.id && avalDepois.eixo === 'mercado' &&
+    avalDepois.nota === 5 && avalDepois.data === '2026-02-05' &&
+    avalDepois.observacao === 'tração comprovada');
+  verificar('avaliação: a tabela mostra o eixo e a nota novos, e o formulário fecha',
+    conteudo.innerHTML.indexOf('tração comprovada') !== -1 &&
+    conteudo.innerHTML.indexOf('<td>Mercado</td>') !== -1 &&
+    conteudo.innerHTML.indexOf('form-avaliacao-editar') === -1);
+
+  // --- (9) documento do empreendimento ----------------------------------
+
+  const formDocEd = formFalso('form-documento-editar', {});
+  clicarEditar('documento', docEd.id, '#/empreendimento/' + empEd.id);
+  html = conteudo.innerHTML;
+  verificar('documento: o formulário abre preenchido',
+    html.indexOf('id="form-documento-editar"') !== -1 &&
+    html.indexOf('value="Pitch de seleção"') !== -1 &&
+    html.indexOf('value="2026-02-03"') !== -1 &&
+    html.indexOf('value="https://exemplo.test/pitch"') !== -1 &&
+    html.indexOf('value="apresentação"') !== -1 &&
+    html.indexOf('id="btn-doc-cancelar"') !== -1, html.slice(0, 200));
+  verificar('documento: sem armazenamento, o formulário só conta os 2 arquivos',
+    html.indexOf('2 arquivos anexados a este registro.') !== -1 &&
+    html.indexOf('A edição altera só as informações.') !== -1 &&
+    recorteForm(html, 'form-documento-editar').indexOf('name="arquivo"') === -1 &&
+    html.indexOf('data-apagar-anexo-documento') === -1);
+
+  enviarEdicao(formDocEd, {
+    titulo: 'Pitch de seleção (final)', data_referencia: '2026-02-04',
+    link: 'https://exemplo.test/pitch-final', descricao: 'versão apresentada à banca'
+  });
+  const docDepois = (Store.empreendimentoPorId(empEd.id).documentos || [])[0];
+  verificar('documento: grava o array documentos em empreendimentos',
+    chamadas.length === 1 && chamadas[0].lista === 'empreendimentos' &&
+    chamadas[0].id === empEd.id &&
+    Object.keys(chamadas[0].dados).join(',') === 'documentos' &&
+    chamadas[0].dados.documentos.length === 1, JSON.stringify(chamadas));
+  verificar('documento: mantém id e os 2 anexos, trocando só os metadados',
+    docDepois.id === docEd.id && (docDepois.arquivos || []).length === 2 &&
+    docDepois.arquivo.nome === 'pitch.pdf' &&
+    docDepois.titulo === 'Pitch de seleção (final)' &&
+    docDepois.data_referencia === '2026-02-04' &&
+    docDepois.link === 'https://exemplo.test/pitch-final' &&
+    docDepois.descricao === 'versão apresentada à banca');
+  verificar('documento: continua na lista com o título novo e o formulário fecha',
+    conteudo.innerHTML.indexOf('Pitch de seleção (final)') !== -1 &&
+    conteudo.innerHTML.indexOf('form-documento-editar') === -1);
+  verificar('documento: avisa que foi atualizado',
+    torrada() === 'Documento atualizado.', torrada());
+
+  /* -------------------------------------------------------------------------
+     Trocar o arquivo na edição: anexa o novo, apaga o velho
+
+     Só evidência e documento de empreendimento têm arquivo. A edição lista os
+     anexos atuais (cada um com o seu "Apagar") e oferece o campo para anexar
+     outro — trocar é a composição das duas ações.
+
+     A ORDEM é o ponto crítico, e as duas operações erram para o mesmo lado: o
+     registro é a fonte da verdade e nunca aponta para arquivo que não existe.
+
+       anexar  arquivo primeiro, registro depois; se a gravação falhar, o
+               arquivo recém-enviado é descartado;
+       apagar  registro primeiro, arquivo depois; se a exclusão no Storage
+               falhar, a gravação NÃO é desfeita e sobra um órfão no bucket.
+
+     A prontidão é contada por REGISTRO de evidência, não por arquivo
+     (Regras.faltasDaPratica, coberta também em teste_prontidao_web.js § 21):
+     apagar o último anexo não tira a evidência da conta do requisito.
+  ------------------------------------------------------------------------- */
+
+  console.log('\n36) Editar anexos: anexar outro arquivo e apagar o antigo');
+
+  Store.limpar();
+  Store.definirPerfil('gestor');
+  instalarArmazenamentoFalso();
+  zerarRegistros();
+  janela.alert = (m) => { alertas.push(String(m)); };
+  const confirmacoes = [];
+  const confirmOriginal = janela.confirm;
+  janela.confirm = (m) => { confirmacoes.push(String(m)); return true; };
+  const espiaAtualizar = Store.atualizarEm;
+  const ultimaConfirmacao = () => confirmacoes[confirmacoes.length - 1] || '';
+  const evPorId = (id) => Store.estado().evidencias.filter((x) => x.id === id)[0];
+  const docsDe = (id) => Store.empreendimentoPorId(id).documentos || [];
+
+  const anexoEvDe = (nome) => ({
+    url: 'https://armazem.test/' + nome, nome: nome, tamanho: 3072,
+    tipo: 'application/pdf', caminho: 'evidencias/CERNE1/1.1.1/2026/' + nome
+  });
+  const anexoUm = anexoEvDe('ata-v1.pdf');
+  const anexoDois = anexoEvDe('lista-v1.pdf');
+
+  Store.criarEm('evidencias', {
+    pratica: '1.1.1', requisito: reqObrigatorio.id, titulo: 'Evidencia com dois',
+    data_referencia: '2026-03-10', responsavel: 'Ana', descricao: 'ata assinada',
+    link: '', arquivo: anexoUm, arquivos: [anexoUm, anexoDois]
+  });
+  const evAnx = Store.estado().evidencias[0];
+
+  // Formulário de edição com campo de arquivo, botão e barra de progresso.
+  const formEvAnx = formFalso('form-evidencia-editar', {});
+  formularioDeAnexos({}, {}, [], 'Salvar alterações', formEvAnx);
+  const camposEvAnx = (arquivos, mudancas) => {
+    const base = Object.assign({
+      titulo: 'Evidencia com dois', data_referencia: '2026-03-10', link: '',
+      responsavel: 'Ana', descricao: 'ata assinada', empreendimento: '',
+      programa: '', atividade: '', tipo_documento: ''
+    }, mudancas || {});
+    return Object.keys(base).map((nome) => ({ name: nome, value: base[nome] }))
+      .concat([{ name: 'arquivo', type: 'file', files: arquivos }]);
+  };
+
+  const botEditarEv = botaoFalso({ 'data-editar-evidencia': evAnx.id });
+  const apagarEv = (chave) => botaoFalso({ 'data-apagar-anexo-evidencia': chave });
+  const telaEv = (botoesApagar) => {
+    simularElementos({
+      '[data-editar-evidencia]': [botEditarEv],
+      '[data-apagar-anexo-evidencia]': botoesApagar || []
+    });
+    renderizarRota('#/pratica/1.1.1');
+    botEditarEv.ao_click();
+    return conteudo.innerHTML;
+  };
+
+  // --- (a) o formulário lista os anexos atuais e oferece anexar outro ------
+
+  const botApagarUm = apagarEv(anexoUm.caminho);
+  const botApagarDois = apagarEv(anexoDois.caminho);
+  html = telaEv([botApagarUm, botApagarDois]);
+  const recorteEvAnx = recorteForm(html, 'form-evidencia-editar');
+  verificar('(a) o formulário lista os dois anexos, com link para baixar cada um',
+    recorteEvAnx.indexOf('href="https://armazem.test/ata-v1.pdf"') !== -1 &&
+    recorteEvAnx.indexOf('>ata-v1.pdf</a>') !== -1 &&
+    recorteEvAnx.indexOf('>lista-v1.pdf</a>') !== -1 &&
+    recorteEvAnx.indexOf('2 arquivos anexados a este registro.') !== -1,
+    recorteEvAnx.slice(0, 400));
+  verificar('(a) cada anexo tem o seu botão Apagar, identificado pelo caminho',
+    recorteEvAnx.indexOf('data-apagar-anexo-evidencia="' + anexoUm.caminho +
+      '">Apagar</button>') !== -1 &&
+    recorteEvAnx.indexOf('data-apagar-anexo-evidencia="' + anexoDois.caminho +
+      '">Apagar</button>') !== -1, recorteEvAnx.slice(0, 600));
+  verificar('(a) o formulário avisa que apagar é permanente, sem desfazer e grava na hora',
+    recorteEvAnx.indexOf('para sempre, sem desfazer') !== -1 &&
+    recorteEvAnx.indexOf('grava na hora e recarrega este formulário') !== -1,
+    recorteEvAnx.slice(0, 600));
+  verificar('(a) com armazenamento, oferece campo para anexar outro arquivo',
+    recorteEvAnx.indexOf('<input type="file" name="arquivo" multiple accept=".pdf,.jpg"') !== -1 &&
+    recorteEvAnx.indexOf('class="envio-barra"') !== -1 &&
+    recorteEvAnx.indexOf('Anexe outro arquivo a este registro.') !== -1,
+    recorteEvAnx.slice(0, 600));
+
+  // --- (b) apagar um anexo: registro primeiro, Storage depois -------------
+
+  chamadas.length = 0;
+  confirmacoes.length = 0;
+  removidosDoBucket.length = 0;
+  let anexosQuandoRemoveu = null;
+  Store.removerArquivo = (caminho) => {
+    anexosQuandoRemoveu = (evPorId(evAnx.id).arquivos || []).map((a) => a.nome);
+    removidosDoBucket.push(caminho);
+    return Promise.resolve();
+  };
+  botApagarUm.ao_click();
+
+  verificar('(b) pede confirmação dizendo que a exclusão é permanente, sem desfazer',
+    confirmacoes.length === 1 && confirmacoes[0].indexOf('ata-v1.pdf') !== -1 &&
+    confirmacoes[0].indexOf('PERMANENTE') !== -1 &&
+    confirmacoes[0].indexOf('não tem desfazer') !== -1, confirmacoes.join('|'));
+  verificar('(b) a confirmação diz que o outro arquivo não é afetado',
+    confirmacoes[0].indexOf('O outro arquivo desta evidência não é afetado.') !== -1,
+    confirmacoes[0]);
+  verificar('(b) grava por atualizarEm o registro sem a referência ao arquivo',
+    chamadas.length === 1 && chamadas[0].lista === 'evidencias' &&
+    chamadas[0].id === evAnx.id &&
+    Object.keys(chamadas[0].dados).sort().join(',') === 'arquivo,arquivos' &&
+    chamadas[0].dados.arquivos.length === 1 &&
+    chamadas[0].dados.arquivos[0].nome === 'lista-v1.pdf' &&
+    chamadas[0].dados.arquivo.nome === 'lista-v1.pdf', JSON.stringify(chamadas));
+  verificar('(b) chama a remoção no Storage com o caminho do arquivo apagado',
+    removidosDoBucket.length === 1 && removidosDoBucket[0] === anexoUm.caminho,
+    removidosDoBucket.join('|'));
+  verificar('(b) o registro JÁ estava gravado quando o Storage foi chamado',
+    JSON.stringify(anexosQuandoRemoveu) === JSON.stringify(['lista-v1.pdf']),
+    JSON.stringify(anexosQuandoRemoveu));
+  verificar('(b) avisa, mantém o formulário aberto e a lista mostra só o que ficou',
+    torrada() === 'Arquivo apagado.' &&
+    recorteForm(conteudo.innerHTML, 'form-evidencia-editar').indexOf('ata-v1.pdf') === -1 &&
+    recorteForm(conteudo.innerHTML, 'form-evidencia-editar').indexOf('lista-v1.pdf') !== -1,
+    torrada());
+
+  // Clique repetido no mesmo botão (arquivo que já saiu): nada acontece.
+  chamadas.length = 0;
+  removidosDoBucket.length = 0;
+  botApagarUm.ao_click();
+  verificar('(b) clicar de novo no Apagar de um arquivo que já saiu não faz nada',
+    chamadas.length === 0 && removidosDoBucket.length === 0);
+
+  // --- (c) anexar outro arquivo: envia primeiro, grava depois -------------
+
+  zerarRegistros();
+  formAtual = formEvAnx;
+  formEvAnx.elements = camposEvAnx([arqFalso('ata-v2.pdf', 4096)],
+    { data_referencia: '2026-03-12', descricao: 'ata nova' });
+  chamadas.length = 0;
+  formEvAnx.ao_submit(evento);
+  verificar('(c) o botão trava enquanto o arquivo sobe e nada é gravado antes',
+    formEvAnx.fake.botao.disabled === true && chamadas.length === 0);
+  await aguardar(() => chamadas.length > 0);
+  const evComNovo = evPorId(evAnx.id);
+  verificar('(c) o arquivo sobe pelo Store, com a prática e a data do formulário',
+    envios.length === 1 && envios[0].arquivo.name === 'ata-v2.pdf' &&
+    envios[0].alvo === '1.1.1' && envios[0].data === '2026-03-12' &&
+    envios[0].indice === 0, JSON.stringify(envios.map((x) => x.alvo)));
+  verificar('(c) o registro fica com o anexo que já tinha MAIS o novo',
+    (evComNovo.arquivos || []).map((a) => a.nome).join(',') === 'lista-v1.pdf,ata-v2.pdf' &&
+    evComNovo.arquivo.nome === 'lista-v1.pdf' && semUndefined(evComNovo),
+    JSON.stringify((evComNovo.arquivos || []).map((a) => a.nome)));
+  verificar('(c) os metadados editados vão na mesma gravação',
+    chamadas.length === 1 && chamadas[0].dados.descricao === 'ata nova' &&
+    chamadas[0].dados.data_referencia === '2026-03-12' &&
+    chamadas[0].dados.arquivos.length === 2, JSON.stringify(chamadas));
+  verificar('(c) avisa o arquivo anexado, fecha o formulário e libera o botão',
+    torrada() === 'Evidência atualizada com o arquivo anexado.' &&
+    conteudo.innerHTML.indexOf('form-evidencia-editar') === -1 &&
+    formEvAnx.fake.botao.disabled === false && alertas.length === 0, torrada());
+
+  // --- (d) gravação falha DEPOIS do envio: o arquivo é descartado ---------
+
+  zerarRegistros();
+  telaEv([]);
+  const evAntesDaFalha = JSON.stringify(evPorId(evAnx.id));
+  Store.atualizarEm = () => Promise.reject(new Error('Firestore fora do ar'));
+  formEvAnx.elements = camposEvAnx([arqFalso('ata-v3.pdf', 2048)]);
+  conteudo.innerHTML = 'MARCADOR';
+  formEvAnx.ao_submit(evento);
+  await aguardar(() => alertas.length > 0);
+  Store.atualizarEm = espiaAtualizar;
+  verificar('(d) o arquivo recém-enviado é descartado do Storage',
+    envios.length === 1 && removidosDoBucket.length === 1 &&
+    removidosDoBucket[0] === 'evidencias/CERNE1/1.1.1/2026/m-1-ata-v3.pdf',
+    removidosDoBucket.join('|'));
+  verificar('(d) o registro continua exatamente como estava',
+    JSON.stringify(evPorId(evAnx.id)) === evAntesDaFalha);
+  verificar('(d) avisa que o arquivo foi descartado e mantém o formulário aberto',
+    alertas.length === 1 && alertas[0].indexOf('descartado') !== -1 &&
+    alertas[0].indexOf('continua como estava') !== -1 &&
+    conteudo.innerHTML === 'MARCADOR' && formEvAnx.fake.botao.disabled === false,
+    alertas.join('|'));
+
+  // --- (e) falha ao apagar no Storage NÃO desfaz a gravação ---------------
+
+  zerarRegistros();
+  const caminhoDoNovo = evPorId(evAnx.id).arquivos[1].caminho;
+  const botApagarNovo = apagarEv(caminhoDoNovo);
+  telaEv([botApagarNovo]);
+  Store.removerArquivo = () => Promise.reject(new Error('sem rede'));
+  chamadas.length = 0;
+  botApagarNovo.ao_click();
+  await esperarPromessas();
+  verificar('(e) exclusão rejeitada no Storage: a gravação feita permanece',
+    chamadas.length === 1 && (evPorId(evAnx.id).arquivos || []).length === 1 &&
+    evPorId(evAnx.id).arquivos[0].nome === 'lista-v1.pdf' &&
+    torrada() === 'Arquivo apagado.' && alertas.length === 0, alertas.join('|'));
+
+  // --- (f) apagar o ÚLTIMO anexo: prontidão não muda ----------------------
+
+  const faltasAntesDoUltimo = JSON.stringify(_info('1.1.1').faltas);
+  const botApagarUltimo = apagarEv(anexoDois.caminho);
+  telaEv([botApagarUltimo]);
+  Store.removerArquivo = () => { throw new Error('sem rede'); };
+  chamadas.length = 0;
+  botApagarUltimo.ao_click();
+  const evSemAnexo = evPorId(evAnx.id);
+  verificar('(f) exclusão que lança erro no Storage também não desfaz a gravação',
+    chamadas.length === 1 && alertas.length === 0 &&
+    torrada() === 'Arquivo apagado.', alertas.join('|'));
+  verificar('(f) o registro fica sem arquivo: `arquivos` vazio e `arquivo` nulo',
+    (evSemAnexo.arquivos || []).length === 0 && evSemAnexo.arquivo === null,
+    JSON.stringify(evSemAnexo.arquivo));
+  verificar('(f) o registro continua existindo, com título e requisito',
+    evSemAnexo.titulo === 'Evidencia com dois' &&
+    evSemAnexo.requisito === reqObrigatorio.id);
+  verificar('(f) a prontidão NÃO muda: a evidência segue valendo para o requisito',
+    JSON.stringify(_info('1.1.1').faltas) === faltasAntesDoUltimo,
+    faltasAntesDoUltimo + ' -> ' + JSON.stringify(_info('1.1.1').faltas));
+  verificar('(f) a confirmação avisa que é o único arquivo e que o registro fica',
+    ultimaConfirmacao().indexOf('É o único arquivo desta evidência.') !== -1 &&
+    ultimaConfirmacao().indexOf('A evidência segue valendo para o requisito.') !== -1 &&
+    ultimaConfirmacao().indexOf('use "Remover"') !== -1, ultimaConfirmacao());
+  html = telaEv([]);
+  verificar('(f) o formulário volta a dizer que não há arquivo anexado',
+    recorteForm(html, 'form-evidencia-editar')
+      .indexOf('Nenhum arquivo anexado a este registro.') !== -1);
+
+  // --- (g) registro no formato ANTIGO (anexo só em `arquivo`) -------------
+
+  zerarRegistros();
+  Store.removerArquivo = (caminho) => { removidosDoBucket.push(caminho); return Promise.resolve(); };
+  const anexoVelho = anexoEvDe('antigo.pdf');
+  Store.criarEm('evidencias', {
+    pratica: '1.1.1', requisito: null, refere_a: 'formato antigo',
+    titulo: 'Evidencia antiga', data_referencia: '2026-01-05',
+    responsavel: 'Bruno', descricao: '', link: '', arquivo: anexoVelho
+  });
+  const evVelha = Store.estado().evidencias.filter((x) => x.titulo === 'Evidencia antiga')[0];
+  verificar('(g) a evidência antiga tem só `arquivo`, sem `arquivos`',
+    !('arquivos' in evVelha) && evVelha.arquivo.nome === 'antigo.pdf');
+
+  const botEditarVelha = botaoFalso({ 'data-editar-evidencia': evVelha.id });
+  const camposVelha = (arquivos, mudancas) => {
+    const base = Object.assign({
+      titulo: 'Evidencia antiga', refere_a: 'formato antigo',
+      data_referencia: '2026-01-05', link: '', responsavel: 'Bruno',
+      descricao: '', empreendimento: '', programa: '', atividade: '',
+      tipo_documento: ''
+    }, mudancas || {});
+    return Object.keys(base).map((nome) => ({ name: nome, value: base[nome] }))
+      .concat([{ name: 'arquivo', type: 'file', files: arquivos }]);
+  };
+  simularElementos({
+    '[data-editar-evidencia]': [botEditarVelha],
+    '[data-apagar-anexo-evidencia]': [apagarEv(anexoVelho.caminho)]
+  });
+  renderizarRota('#/pratica/1.1.1');
+  botEditarVelha.ao_click();
+  const recorteVelha = recorteForm(conteudo.innerHTML, 'form-evidencia-editar');
+  verificar('(g) o formato antigo é listado com o seu Apagar e o campo de anexo',
+    recorteVelha.indexOf('1 arquivo anexado a este registro.') !== -1 &&
+    recorteVelha.indexOf('>antigo.pdf</a>') !== -1 &&
+    recorteVelha.indexOf('data-apagar-anexo-evidencia="' + anexoVelho.caminho +
+      '">Apagar</button>') !== -1 &&
+    recorteVelha.indexOf('name="arquivo" multiple') !== -1, recorteVelha.slice(0, 400));
+
+  // edição só de metadados: o anexo antigo continua onde estava
+  formAtual = formEvAnx;
+  formEvAnx.elements = camposVelha([], { descricao: 'conferida em 2026' });
+  chamadas.length = 0;
+  formEvAnx.ao_submit(evento);
+  const velhaEditada = evPorId(evVelha.id);
+  verificar('(g) editar o formato antigo sem anexar nada NÃO perde o anexo',
+    chamadas.length === 1 && !('arquivo' in chamadas[0].dados) &&
+    !('arquivos' in chamadas[0].dados) && envios.length === 0 &&
+    velhaEditada.arquivo.nome === 'antigo.pdf' && !('arquivos' in velhaEditada) &&
+    velhaEditada.descricao === 'conferida em 2026', JSON.stringify(chamadas));
+
+  // anexar um arquivo novo a um registro antigo: `arquivos` passa a ter os dois
+  simularElementos({
+    '[data-editar-evidencia]': [botEditarVelha],
+    '[data-apagar-anexo-evidencia]': []
+  });
+  renderizarRota('#/pratica/1.1.1');
+  botEditarVelha.ao_click();
+  zerarRegistros();
+  formEvAnx.elements = camposVelha([arqFalso('novo.pdf', 1024)],
+    { descricao: 'conferida em 2026' });
+  chamadas.length = 0;
+  formEvAnx.ao_submit(evento);
+  await aguardar(() => chamadas.length > 0);
+  const velhaComNovo = evPorId(evVelha.id);
+  verificar('(g) anexar no formato antigo mantém o arquivo que já existia',
+    (velhaComNovo.arquivos || []).map((a) => a.nome).join(',') === 'antigo.pdf,novo.pdf' &&
+    velhaComNovo.arquivo.nome === 'antigo.pdf' && semUndefined(velhaComNovo),
+    JSON.stringify((velhaComNovo.arquivos || []).map((a) => a.nome)));
+
+  // --- (h) documento de empreendimento: mesma edição de anexos ------------
+
+  zerarRegistros();
+  Store.criarEm('empreendimentos', {
+    nome: 'Startup Anexos', setor: 'TIC', estagio: 'ideia', situacao: 'apoiado'
+  });
+  const empAnx = Store.estado().empreendimentos[0];
+  const anexoDocDe = (nome) => ({
+    url: 'https://armazem.test/' + nome, nome: nome, tamanho: 2048,
+    tipo: 'application/pdf', path: 'empreendimentos/' + empAnx.id + '/2026/' + nome
+  });
+  const pitchPdf = anexoDocDe('pitch.pdf');
+  const planilhaPdf = anexoDocDe('planilha.pdf');
+  Store.atualizarEm('empreendimentos', empAnx.id, {
+    documentos: [{
+      id: 'doc-anexos', titulo: 'Pitch de seleção', data_referencia: '2026-02-03',
+      link: '', descricao: 'apresentação', criado_em: '2026-02-03T00:00:00.000Z',
+      arquivo: pitchPdf, arquivos: [pitchPdf, planilhaPdf]
+    }]
+  });
+
+  const formDocAnx = formFalso('form-documento-editar', {});
+  formularioDeAnexos({}, {}, [], 'Salvar alterações', formDocAnx);
+  const camposDocAnx = (arquivos, mudancas) => {
+    const base = Object.assign({
+      titulo: 'Pitch de seleção', data_referencia: '2026-02-03', link: '',
+      descricao: 'apresentação'
+    }, mudancas || {});
+    return Object.keys(base).map((nome) => ({ name: nome, value: base[nome] }))
+      .concat([{ name: 'arquivo', type: 'file', files: arquivos }]);
+  };
+  const botEditarDoc = botaoFalso({ 'data-editar-documento': 'doc-anexos' });
+  const apagarDoc = (chave) => botaoFalso({ 'data-apagar-anexo-documento': chave });
+  const telaDoc = (botoesApagar) => {
+    simularElementos({
+      '[data-editar-documento]': [botEditarDoc],
+      '[data-apagar-anexo-documento]': botoesApagar || []
+    });
+    renderizarRota('#/empreendimento/' + empAnx.id);
+    botEditarDoc.ao_click();
+    return conteudo.innerHTML;
+  };
+
+  const botApagarPitch = apagarDoc(pitchPdf.path);
+  html = telaDoc([botApagarPitch, apagarDoc(planilhaPdf.path)]);
+  const recorteDocAnx = recorteForm(html, 'form-documento-editar');
+  verificar('(h) o formulário do documento lista os 2 anexos, cada um com Apagar',
+    recorteDocAnx.indexOf('2 arquivos anexados a este registro.') !== -1 &&
+    recorteDocAnx.indexOf('>pitch.pdf</a>') !== -1 &&
+    recorteDocAnx.indexOf('>planilha.pdf</a>') !== -1 &&
+    recorteDocAnx.indexOf('data-apagar-anexo-documento="' + pitchPdf.path +
+      '">Apagar</button>') !== -1 &&
+    recorteDocAnx.indexOf('data-apagar-anexo-documento="' + planilhaPdf.path +
+      '">Apagar</button>') !== -1, recorteDocAnx.slice(0, 600));
+  verificar('(h) o formulário do documento oferece campo para anexar outro',
+    recorteDocAnx.indexOf('<input type="file" name="arquivo" multiple accept=".pdf,.jpg"') !== -1);
+
+  chamadas.length = 0;
+  removidosDoBucket.length = 0;
+  Store.removerArquivo = (caminho) => {
+    anexosQuandoRemoveu = docsDe(empAnx.id)[0].arquivos.map((a) => a.nome);
+    removidosDoBucket.push(caminho);
+    return Promise.resolve();
+  };
+  botApagarPitch.ao_click();
+  verificar('(h) apagar anexo do documento grava o array `documentos` inteiro',
+    chamadas.length === 1 && chamadas[0].lista === 'empreendimentos' &&
+    chamadas[0].id === empAnx.id &&
+    Object.keys(chamadas[0].dados).join(',') === 'documentos' &&
+    chamadas[0].dados.documentos.length === 1, JSON.stringify(chamadas));
+  verificar('(h) o documento mantém id, título e o anexo que ficou',
+    docsDe(empAnx.id)[0].id === 'doc-anexos' &&
+    docsDe(empAnx.id)[0].titulo === 'Pitch de seleção' &&
+    docsDe(empAnx.id)[0].arquivos.length === 1 &&
+    docsDe(empAnx.id)[0].arquivos[0].nome === 'planilha.pdf' &&
+    docsDe(empAnx.id)[0].arquivo.nome === 'planilha.pdf');
+  verificar('(h) apaga no Storage pelo `path`, e só depois de gravar o registro',
+    removidosDoBucket.length === 1 && removidosDoBucket[0] === pitchPdf.path &&
+    JSON.stringify(anexosQuandoRemoveu) === JSON.stringify(['planilha.pdf']),
+    removidosDoBucket.join('|') + ' / ' + JSON.stringify(anexosQuandoRemoveu));
+
+  zerarRegistros();
+  telaDoc([]);
+  formAtual = formDocAnx;
+  formDocAnx.elements = camposDocAnx([arqFalso('pitch-v2.pdf', 3072)],
+    { titulo: 'Pitch de seleção (final)' });
+  chamadas.length = 0;
+  formDocAnx.ao_submit(evento);
+  await aguardar(() => chamadas.length > 0);
+  const docComNovo = docsDe(empAnx.id)[0];
+  verificar('(h) anexar no documento envia pelo Store do empreendimento',
+    envios.length === 1 && envios[0].tipo === 'empreendimento' &&
+    envios[0].alvo === empAnx.id && envios[0].arquivo.name === 'pitch-v2.pdf');
+  verificar('(h) o documento fica com o anexo antigo mais o novo, e o título novo',
+    docComNovo.arquivos.map((a) => a.nome).join(',') === 'planilha.pdf,pitch-v2.pdf' &&
+    docComNovo.arquivo.nome === 'planilha.pdf' &&
+    docComNovo.titulo === 'Pitch de seleção (final)' && semUndefined(docComNovo));
+  verificar('(h) avisa a edição com o arquivo e fecha o formulário',
+    torrada() === 'Documento atualizado com o arquivo anexado.' &&
+    conteudo.innerHTML.indexOf('form-documento-editar') === -1, torrada());
+
+  // --- (i) sem armazenamento, nem campo de arquivo nem Apagar ------------
+
+  removerArmazenamentoFalso();
+  html = telaEv([]);
+  verificar('(i) sem armazenamento, a edição da evidência volta a ser só de metadados',
+    recorteForm(html, 'form-evidencia-editar').indexOf('type="file"') === -1 &&
+    html.indexOf('data-apagar-anexo-evidencia') === -1 &&
+    recorteForm(html, 'form-evidencia-editar')
+      .indexOf('A edição altera só as informações.') !== -1);
+  html = telaDoc([]);
+  verificar('(i) sem armazenamento, a edição do documento também é só de metadados',
+    recorteForm(html, 'form-documento-editar').indexOf('type="file"') === -1 &&
+    html.indexOf('data-apagar-anexo-documento') === -1);
+
+  janela.confirm = confirmOriginal;
+  janela.alert = alertOriginal;
   Store.atualizarEm = atualizarOriginal;
   pararSimulacao();
   delete janela.prompt;

@@ -797,6 +797,13 @@
   // registros. Começa vazio (mostra tudo) e é zerado ao trocar de prática.
   var filtroEvidencias = { ano: '', tipo: '' };
 
+  // Id do registro cujo formulário de edição está aberto na tela da prática
+  // (null = nenhum). Um por tipo: o formulário abre no lugar do registro.
+  var evidenciaEmEdicao = null;
+  var medicaoEmEdicao = null;
+  var revisaoEmEdicao = null;
+  var planoEmEdicao = null;
+
   /** A evidência passa pelo filtro atual da tela da prática?
    *  `tipoDoItem` é 'requisito' (vinculada a um requisito do CERNE) ou
    *  'propria' (material próprio do parque). */
@@ -813,8 +820,15 @@
         '</strong> não encontrada no catálogo. <a href="#/catalogo">Voltar às práticas</a>.</div>';
     }
     // Ao abrir outra prática, zera o filtro de evidências: os anos disponíveis
-    // mudam de uma prática para outra.
-    if (praticaAtual !== codigo) filtroEvidencias = { ano: '', tipo: '' };
+    // mudam de uma prática para outra. A edição aberta também é descartada —
+    // o registro em edição é de outra prática.
+    if (praticaAtual !== codigo) {
+      filtroEvidencias = { ano: '', tipo: '' };
+      evidenciaEmEdicao = null;
+      medicaoEmEdicao = null;
+      revisaoEmEdicao = null;
+      planoEmEdicao = null;
+    }
     praticaAtual = codigo;
 
     var pr = item.pratica;
@@ -832,9 +846,18 @@
       var doRequisito = evidencias.filter(function (e) { return e.requisito === req.id; });
       var atendido = doRequisito.length > 0;
 
-      var listaEvid = doRequisito.filter(function (e) {
+      var visiveis = doRequisito.filter(function (e) {
         return passaFiltroEvid(e, 'requisito');
-      }).map(function (e) {
+      });
+      // Um registro em edição aqui dentro obriga o bloco a ficar ABERTO. O
+      // formulário abre no lugar do registro, e <details> fechado não mostra
+      // o que tem dentro: sem isto, clicar em "Editar" num requisito já
+      // atendido parecia não fazer nada.
+      var editandoAqui = visiveis.filter(function (e) {
+        return e.id === evidenciaEmEdicao;
+      }).length > 0;
+
+      var listaEvid = visiveis.map(function (e) {
         var link = urlSegura(e.link);
         var anexos = anexosHtml(e);
         var vinc = vinculoEvidencia(e);
@@ -854,13 +877,16 @@
           '</span></span>' +
           (somenteLeitura ? '' :
             '<button type="button" class="botao secundario pequeno nao-imprimir" ' +
+            'data-editar-evidencia="' + esc(e.id) + '">Editar</button> ' +
+            '<button type="button" class="botao secundario pequeno nao-imprimir" ' +
             'data-remover-evidencia="' + esc(e.id) + '">Remover</button>') +
+          (somenteLeitura || evidenciaEmEdicao !== e.id ? '' : formEdicaoEvidencia(e)) +
           '</li>'
         );
       }).join('');
 
       return (
-        '<details class="bloco"' + (atendido ? '' : ' open') + '>' +
+        '<details class="bloco"' + (atendido && !editandoAqui ? '' : ' open') + '>' +
         '<summary>' +
         '<span class="marcador ' + (atendido ? 'ok' : 'pendente') + '" aria-hidden="true">' +
         (atendido ? '●' : '○') + '</span>' +
@@ -947,7 +973,10 @@
         '</span></span>' +
         (somenteLeitura ? '' :
           '<button type="button" class="botao secundario pequeno nao-imprimir" ' +
+          'data-editar-evidencia="' + esc(e.id) + '">Editar</button> ' +
+          '<button type="button" class="botao secundario pequeno nao-imprimir" ' +
           'data-remover-evidencia="' + esc(e.id) + '">Remover</button>') +
+        (somenteLeitura || evidenciaEmEdicao !== e.id ? '' : formEdicaoEvidencia(e)) +
         '</li>'
       );
     }).join('');
@@ -956,6 +985,11 @@
     var metricasHtml = (pr.metricas || []).map(function (met) {
       var medicoes = Store.medicoesDaMetrica(met.id);
       var temMedicao = medicoes.length > 0;
+      // Mesmo cuidado dos requisitos: com uma medição em edição, o bloco da
+      // métrica fica aberto, senão o formulário some dentro do <details>.
+      var editandoAqui = medicoes.filter(function (m) {
+        return m.id === medicaoEmEdicao;
+      }).length > 0;
 
       var linhas = medicoes.map(function (m) {
         return (
@@ -963,14 +997,23 @@
           '<td>' + dataBR(m.data) + '</td>' +
           '<td>' + esc(m.observacao || '') + '</td>' +
           (somenteLeitura ? '' :
-            '<td class="numero nao-imprimir"><button type="button" class="botao secundario pequeno" ' +
+            '<td class="numero nao-imprimir">' +
+            '<button type="button" class="botao secundario pequeno" ' +
+            'data-editar-medicao="' + esc(m.id) + '">Editar</button> ' +
+            '<button type="button" class="botao secundario pequeno" ' +
             'data-remover-medicao="' + esc(m.id) + '">Remover</button></td>') +
-          '</tr>'
+          '</tr>' +
+          // O formulário de edição ocupa uma linha inteira da tabela, logo
+          // abaixo da medição que está sendo editada.
+          (somenteLeitura || medicaoEmEdicao !== m.id
+            ? ''
+            : '<tr class="nao-imprimir"><td colspan="4">' +
+              formEdicaoMedicao(m, met) + '</td></tr>')
         );
       }).join('');
 
       return (
-        '<details class="bloco"' + (temMedicao ? '' : ' open') + '>' +
+        '<details class="bloco"' + (temMedicao && !editandoAqui ? '' : ' open') + '>' +
         '<summary>' +
         '<span class="marcador ' + (temMedicao ? 'ok' : 'pendente') + '" aria-hidden="true">' +
         (temMedicao ? '●' : '○') + '</span>' +
@@ -1012,7 +1055,10 @@
     var revisoesHtml = revisoes.length
       ? revisoes.map(function (r) {
           return (
-            '<details class="bloco"><summary>Revisão de ' + dataBR(r.data) +
+            // Em edição, o bloco da revisão abre: é dentro dele que o
+            // formulário aparece.
+            '<details class="bloco"' + (revisaoEmEdicao === r.id ? ' open' : '') + '>' +
+            '<summary>Revisão de ' + dataBR(r.data) +
             (r.periodo ? ' · ' + esc(r.periodo) : '') +
             (r.necessita_ajustes ? ' <span class="etiqueta amarela">Requer ajustes</span>' : '') +
             '</summary>' +
@@ -1022,7 +1068,10 @@
             (r.observacoes ? '<p class="pequeno suave">' + esc(r.observacoes) + '</p>' : '') +
             (somenteLeitura ? '' :
               '<button type="button" class="botao secundario pequeno nao-imprimir" ' +
+              'data-editar-revisao="' + esc(r.id) + '">Editar</button> ' +
+              '<button type="button" class="botao secundario pequeno nao-imprimir" ' +
               'data-remover-revisao="' + esc(r.id) + '">Remover</button>') +
+            (somenteLeitura || revisaoEmEdicao !== r.id ? '' : formEdicaoRevisao(r)) +
             '</details>'
           );
         }).join('')
@@ -1066,7 +1115,10 @@
             esc(Store.rotuloDe(Store.SITUACOES_PLANO, p.situacao)) + '</span>' +
             (somenteLeitura ? '' :
               '<button type="button" class="botao secundario pequeno nao-imprimir" ' +
+              'data-editar-plano="' + esc(p.id) + '">Editar</button> ' +
+              '<button type="button" class="botao secundario pequeno nao-imprimir" ' +
               'data-remover-plano="' + esc(p.id) + '">Remover</button>') +
+            (somenteLeitura || planoEmEdicao !== p.id ? '' : formEdicaoPlano(p)) +
             '</li>'
           );
         }).join('') + '</ul>'
@@ -1528,6 +1580,41 @@
       });
     }
 
+    ligarEdicoes([
+      {
+        atributo: 'data-editar-evidencia',
+        form: 'form-evidencia-editar',
+        cancelar: 'btn-ev-cancelar',
+        abrir: function (id) { evidenciaEmEdicao = id; },
+        salvar: salvarEdicaoEvidencia,
+        anexos: {
+          atributo: 'data-apagar-anexo-evidencia',
+          apagar: apagarAnexoDeEvidencia
+        }
+      },
+      {
+        atributo: 'data-editar-medicao',
+        form: 'form-medicao-editar',
+        cancelar: 'btn-med-cancelar',
+        abrir: function (id) { medicaoEmEdicao = id; },
+        salvar: salvarEdicaoMedicao
+      },
+      {
+        atributo: 'data-editar-revisao',
+        form: 'form-revisao-editar',
+        cancelar: 'btn-rev-cancelar',
+        abrir: function (id) { revisaoEmEdicao = id; },
+        salvar: salvarEdicaoRevisao
+      },
+      {
+        atributo: 'data-editar-plano',
+        form: 'form-plano-editar',
+        cancelar: 'btn-plano-cancelar',
+        abrir: function (id) { planoEmEdicao = id; },
+        salvar: salvarEdicaoPlano
+      }
+    ]);
+
     ligarRemocoes();
   };
 
@@ -1551,6 +1638,619 @@
         }
       );
     });
+  }
+
+  /* ------------------------------------------------------ edição de registros
+
+     Todo registro que pode ser removido também pode ser corrigido. O botão
+     "Editar" guarda o id numa variável de módulo e manda redesenhar: o
+     formulário abre no lugar do registro, preenchido com os valores atuais e
+     sempre com um botão Cancelar. É o mesmo desenho já usado nas atividades.
+
+     A gravação passa por Store.atualizarEm. No modo nuvem é ele que registra
+     no Histórico a ação 'editar' com o que mudou — essa trilha é o que dá
+     rastreabilidade ao dossiê de auditoria.
+
+     Nos dois tipos que têm arquivo — evidência e documento de empreendimento
+     — a edição também mexe nos anexos: lista os que o registro tem hoje, cada
+     um com o seu "Apagar", e oferece o campo para anexar outro. Os outros
+     quatro tipos não têm arquivo, então o formulário deles é só de metadados.
+     ====================================================================== */
+
+  /** Registro de uma coleção pelo id, ou null. */
+  function registroPorId(colecao, id) {
+    var lista = Store.estado()[colecao] || [];
+    for (var i = 0; i < lista.length; i++) {
+      if (lista[i].id === id) return lista[i];
+    }
+    return null;
+  }
+
+  /** Cópia do item com alguns campos trocados. Usada nos registros guardados
+   *  dentro de um array (avaliações e documentos do empreendimento): o que o
+   *  formulário não edita continua no item. */
+  function itemAtualizado(item, mudancas) {
+    var novo = {};
+    Object.keys(item).forEach(function (k) { novo[k] = item[k]; });
+    Object.keys(mudancas).forEach(function (k) { novo[k] = mudancas[k]; });
+    return novo;
+  }
+
+  /* ---- anexos na edição ----
+
+     Trocar um arquivo é a composição das duas ações que o formulário oferece:
+     o campo anexa o novo, o botão de cada linha apaga o velho. Não existe uma
+     operação de "substituir" — ela duplicaria esta lógica e teria os mesmos
+     modos de falha.
+
+     A ordem das duas é o que protege o dossiê, e as duas erram para o mesmo
+     lado: o registro é a fonte da verdade e NUNCA pode apontar para um
+     arquivo que não existe.
+
+       anexar  envia o arquivo primeiro e grava o registro depois; se a
+               gravação falhar, o arquivo que acabou de subir é descartado;
+       apagar  grava o registro sem a referência primeiro e apaga o arquivo
+               depois; se a exclusão falhar, sobra um órfão no bucket.
+
+     Arquivo órfão custa armazenamento e ninguém mais o alcança pelo sistema.
+     Registro apontando para arquivo inexistente quebra o dossiê de auditoria,
+     que é a razão de o sistema existir. */
+
+  /** "Nenhum arquivo anexado a este registro." / "1 arquivo..." / "N ...". */
+  function contagemAnexos(n) {
+    if (n === 0) return 'Nenhum arquivo anexado a este registro.';
+    if (n === 1) return '1 arquivo anexado a este registro.';
+    return n + ' arquivos anexados a este registro.';
+  }
+
+  /** Identifica o anexo dentro do registro: o caminho no bucket ou, nos
+   *  anexos antigos sem caminho, a URL. É a mesma chave que o Regras usa para
+   *  não repetir anexo, então não há duas iguais na lista. */
+  function chaveDoAnexo(anexo) {
+    return anexo.caminho || anexo.url;
+  }
+
+  /** Campos de anexo do registro: `arquivos` com a lista toda e `arquivo` com
+   *  o primeiro — o único campo que os registros antigos têm. Lista vazia zera
+   *  os dois; manter o `arquivo` antigo deixaria o registro apontando para o
+   *  arquivo que acabou de ser apagado. */
+  function camposDeAnexos(anexos) {
+    return { arquivos: anexos, arquivo: anexos.length ? anexos[0] : null };
+  }
+
+  /** Anexos atuais dentro do formulário de edição.
+   *
+   *  Com armazenamento: um por linha, com link para baixar e o próprio botão
+   *  "Apagar", mais o campo para anexar outro arquivo.
+   *
+   *  Sem armazenamento (modo local) não há onde enviar nem o que apagar: fica
+   *  só a contagem, e a edição altera apenas as informações. */
+  function anexosEdicaoHtml(registro, atributoApagar) {
+    var anexos = global.Regras.anexosDoRegistro(registro);
+    if (!podeAnexar()) {
+      return (
+        '<p class="pequeno suave">' + contagemAnexos(anexos.length) +
+        ' A edição altera só as informações.</p>'
+      );
+    }
+    return (
+      '<p class="pequeno suave sem-margem">' + contagemAnexos(anexos.length) +
+      (anexos.length
+        ? ' Apagar exclui o arquivo do armazenamento para sempre, sem ' +
+          'desfazer; o registro continua, sem a referência a ele. Apagar ' +
+          'grava na hora e recarrega este formulário, então apague antes de ' +
+          'digitar as alterações.'
+        : '') +
+      '</p>' +
+      (anexos.length
+        ? '<ul class="lista">' + anexos.map(function (a) {
+            var url = urlSegura(a.url);
+            var nome = esc(a.nome || 'arquivo');
+            var tam = tamanhoLegivel(a.tamanho);
+            return (
+              '<li><span style="flex:1;min-width:0" class="quebra">' +
+              (url
+                ? '<a href="' + esc(url) + '" target="_blank" ' +
+                  'rel="noopener noreferrer" class="quebra">' + nome + '</a>'
+                : nome) +
+              (tam ? ' <span class="pequeno suave">(' + tam + ')</span>' : '') +
+              '</span>' +
+              '<button type="button" class="botao secundario pequeno nao-imprimir" ' +
+              atributoApagar + '="' + esc(chaveDoAnexo(a)) + '">Apagar</button></li>'
+            );
+          }).join('') + '</ul>'
+        : '') +
+      campoAnexosHtml(
+        'Anexe outro arquivo a este registro. ',
+        ' O envio acontece ao salvar as alterações.'
+      )
+    );
+  }
+
+  /** Confirmação de exclusão de anexo: o que vai embora para sempre e o que
+   *  fica. `cfg.deste` é "desta evidência" ou "deste documento"; `cfg.semArquivo`
+   *  é a frase a mais quando era o último arquivo.
+   *
+   *  A prontidão é contada por REGISTRO de evidência, não por arquivo
+   *  (Regras.faltasDaPratica), então apagar o último arquivo NÃO tira a
+   *  evidência da conta do requisito. O texto diz isso para ninguém apagar o
+   *  arquivo achando que descadastrou a evidência. */
+  function textoApagarAnexo(anexo, total, cfg) {
+    var outros = total - 1;
+    return (
+      'Apagar o arquivo "' + (anexo.nome || 'arquivo') + '"?\n\n' +
+      'A exclusão é PERMANENTE e não tem desfazer: o arquivo sai do ' +
+      'armazenamento e o registro deixa de citá-lo.\n\n' +
+      (outros === 0
+        ? 'É o único arquivo ' + cfg.deste + '. O registro continua existindo, ' +
+          'com as informações e o link.' + (cfg.semArquivo || '') +
+          ' Para apagar o registro inteiro, use "Remover".'
+        : outros === 1
+          ? 'O outro arquivo ' + cfg.deste + ' não é afetado.'
+          : 'Os outros ' + outros + ' arquivos ' + cfg.deste + ' não são afetados.')
+    );
+  }
+
+  /** Apaga o arquivo do bucket DEPOIS de o registro já estar gravado sem ele.
+   *  Falhar aqui não desfaz nada: o registro já está correto e sobra, no
+   *  máximo, um arquivo órfão — o lado certo de errar. Fica o registro no
+   *  console para quem for limpar o bucket. */
+  function apagarDoArmazenamento(caminho) {
+    if (!caminho || typeof Store.removerArquivo !== 'function') return;
+    var aviso = function (erro) {
+      console.warn(
+        'O registro foi gravado sem o anexo, mas o arquivo continua no ' +
+        'armazenamento:', caminho, erro
+      );
+    };
+    try {
+      Promise.resolve(Store.removerArquivo(caminho)).catch(aviso);
+    } catch (erro) {
+      aviso(erro);
+    }
+  }
+
+  /** Apaga um anexo do registro em edição: confirma, grava o registro sem a
+   *  referência e só então apaga o arquivo do armazenamento.
+   *
+   *  cfg = {
+   *    registro    registro em edição
+   *    chave       chave do anexo a apagar (ver chaveDoAnexo)
+   *    deste       "desta evidência" / "deste documento", para as mensagens
+   *    semArquivo  frase a mais na confirmação do último arquivo (opcional)
+   *    gravar      function(restantes) grava o registro com os anexos que ficam
+   *  } */
+  function apagarAnexoEmEdicao(cfg) {
+    if (!Store.podeEditar()) return;
+
+    // A lista vem do registro, não da tela: Regras.anexosDoRegistro entende o
+    // formato novo (`arquivos`) e o antigo (só `arquivo`), sem repetir o
+    // primeiro, que aparece nos dois.
+    var anexos = global.Regras.anexosDoRegistro(cfg.registro);
+    var alvo = null;
+    var restantes = [];
+    anexos.forEach(function (a) {
+      if (!alvo && chaveDoAnexo(a) === cfg.chave) alvo = a;
+      else restantes.push(a);
+    });
+    if (!alvo) return;
+
+    if (!global.confirm(textoApagarAnexo(alvo, anexos.length, cfg))) return;
+
+    // Primeiro o registro: a partir daqui ele não cita mais o arquivo.
+    try {
+      cfg.gravar(restantes);
+    } catch (erro) {
+      console.error('Falha ao gravar o registro sem o anexo:', erro);
+      global.alert(
+        'Não foi possível gravar a alteração no registro.\n\n' +
+        'O arquivo NÃO foi apagado e continua anexado. Tente de novo.'
+      );
+      return;
+    }
+
+    // Só depois o arquivo. Falha aqui não faz a operação falhar.
+    apagarDoArmazenamento(alvo.caminho);
+    avisar('Arquivo apagado.');
+    renderizar();
+  }
+
+  /** Aviso do fim da edição, citando os arquivos quando houve envio. */
+  function avisoEdicaoSalva(base, quantos) {
+    if (!quantos) return base + '.';
+    return base + (quantos > 1
+      ? ' com ' + quantos + ' arquivos anexados.'
+      : ' com o arquivo anexado.');
+  }
+
+  /** Grava a edição de um registro que pode ter ganhado arquivos novos.
+   *
+   *  Sem arquivo escolhido, grava só os metadados e não toca nos anexos. Com
+   *  arquivo, envia primeiro e grava depois:
+   *
+   *    - envio falha: nada muda, a pessoa é avisada e o formulário fica
+   *      aberto, preenchido, para tentar de novo;
+   *    - gravação falha com o arquivo já no bucket: o arquivo recém-enviado é
+   *      descartado e o registro continua como estava.
+   *
+   *  cfg = {
+   *    form      formulário aberto (botão e barra de progresso)
+   *    novos     arquivos escolhidos no campo
+   *    atuais    anexos que o registro já tem
+   *    enviarUm  function(arquivo, indice, aoProgresso) -> promessa do anexo
+   *    gravar    function(anexos) grava o registro; `null` = não mexer nos anexos
+   *    concluir  function(quantosNovos) fecha o formulário e avisa
+   *  } */
+  function salvarEdicaoComAnexos(cfg) {
+    if (!cfg.novos.length) {
+      cfg.gravar(null);
+      cfg.concluir(0);
+      return;
+    }
+
+    // Nada sobe antes de o lote inteiro estar válido; o formulário fica como
+    // está, preenchido, para a pessoa corrigir.
+    var problema = problemaDoLote(cfg.novos);
+    if (problema) {
+      global.alert(problema);
+      return;
+    }
+
+    var painel = painelDeEnvio(cfg.form, cfg.novos.length);
+    painel.travar();
+
+    enviarEmSequencia(cfg.novos, cfg.enviarUm, painel.progresso).then(
+      function (anexos) {
+        // Arquivos no bucket: o registro passa a apontar para os que já tinha
+        // MAIS estes. `new Promise` aceita gravação síncrona (modo local) e
+        // assíncrona, e leva um erro dos dois jeitos para o mesmo lugar.
+        return new Promise(function (ok) {
+          ok(cfg.gravar(cfg.atuais.concat(anexos)));
+        }).then(function () {
+          painel.liberar();
+          cfg.concluir(anexos.length);
+        }, function (erro) {
+          descartarEnviados(anexos);
+          painel.liberar();
+          console.error('Falha ao gravar a edição depois do envio:', erro);
+          global.alert(
+            'O arquivo foi enviado, mas não foi possível gravar a alteração ' +
+            'no registro.\n\nO arquivo enviado foi descartado e o registro ' +
+            'continua como estava. Tente de novo.'
+          );
+        });
+      },
+      function (erro) {
+        painel.liberar();
+        console.error('Falha ao enviar o arquivo:', erro);
+        var prefixo = cfg.novos.length > 1
+          ? textoFalhaDoLote(cfg.novos, painel.indice) : '';
+        global.alert(
+          prefixo + 'Não foi possível enviar o arquivo:\n\n' + (erro && erro.message) +
+          (prefixo ? '' : '\n\nO registro não foi alterado.')
+        );
+      }
+    );
+  }
+
+  /** Formulário de edição, aberto no lugar do registro: título, campos, nota
+   *  e os botões Salvar/Cancelar. `naLista` faz o formulário ocupar a linha
+   *  inteira quando ele fica dentro de um item de lista (que é flex). */
+  function formEdicao(cfg) {
+    return (
+      '<form id="' + cfg.form + '" class="nao-imprimir" style="' +
+      (cfg.naLista ? 'flex-basis:100%;' : '') +
+      'border-top:1px solid var(--cinza-200);margin-top:.6rem;padding-top:.7rem">' +
+      '<p class="rotulo-secao">' + cfg.titulo + '</p>' +
+      cfg.campos +
+      (cfg.nota || '') +
+      '<div class="acoes">' +
+      '<button type="submit" class="botao pequeno">Salvar alterações</button>' +
+      '<button type="button" class="botao secundario pequeno" id="' +
+      cfg.cancelar + '">Cancelar</button>' +
+      '</div></form>'
+    );
+  }
+
+  /** Liga, para cada tipo, os botões "Editar", o formulário aberto e o
+   *  Cancelar. Nos tipos com arquivo (`cfg.anexos`), liga também a lista dos
+   *  escolhidos no campo e o "Apagar" de cada anexo atual. Os manipuladores
+   *  reconferem o perfil: esconder o botão na tela é conveniência, quem decide
+   *  de verdade são as regras do servidor. */
+  function ligarEdicoes(mapa) {
+    mapa.forEach(function (cfg) {
+      Array.prototype.forEach.call(
+        doc.querySelectorAll('[' + cfg.atributo + ']'),
+        function (botao) {
+          botao.addEventListener('click', function () {
+            if (!Store.podeEditar()) return;
+            cfg.abrir(botao.getAttribute(cfg.atributo));
+            renderizar();
+          });
+        }
+      );
+
+      var cancelar = doc.getElementById(cfg.cancelar);
+      if (cancelar) cancelar.addEventListener('click', function () {
+        cfg.abrir(null);
+        renderizar();
+      });
+
+      var form = doc.getElementById(cfg.form);
+      if (form) {
+        form.addEventListener('submit', function (ev) {
+          ev.preventDefault();
+          cfg.salvar(form);
+        });
+        if (cfg.anexos) ligarCampoAnexos(form);
+      }
+
+      if (cfg.anexos) {
+        Array.prototype.forEach.call(
+          doc.querySelectorAll('[' + cfg.anexos.atributo + ']'),
+          function (botao) {
+            botao.addEventListener('click', function () {
+              if (!Store.podeEditar()) return;
+              cfg.anexos.apagar(botao.getAttribute(cfg.anexos.atributo));
+            });
+          }
+        );
+      }
+    });
+  }
+
+  /* ---- formulários de edição da tela da prática ---- */
+
+  /** Evidência. A própria do parque (sem requisito do modelo) tem o campo
+   *  "A que se refere"; a do modelo continua no requisito em que foi
+   *  registrada, que não muda ao editar. */
+  function formEdicaoEvidencia(e) {
+    var propria = !e.requisito;
+    return formEdicao({
+      form: 'form-evidencia-editar',
+      cancelar: 'btn-ev-cancelar',
+      naLista: true,
+      titulo: 'Editar evidência' +
+        (e.protocolo ? ' <span class="etiqueta azul">' + esc(e.protocolo) + '</span>' : ''),
+      campos:
+        '<div class="linha-campos">' +
+        '<div class="campo"><label>Título da evidência</label>' +
+        '<input type="text" name="titulo" required value="' + esc(e.titulo) + '"></div>' +
+        '<div class="campo"><label>Data de referência</label>' +
+        '<input type="date" name="data_referencia" value="' + esc(e.data_referencia) + '"></div>' +
+        '</div>' +
+        (propria
+          ? '<div class="campo"><label>A que se refere</label>' +
+            '<input type="text" name="refere_a" value="' + esc(e.refere_a) + '" ' +
+            'placeholder="ex.: iniciativa própria do parque"></div>'
+          : '') +
+        '<div class="linha-campos tres">' +
+        '<div class="campo"><label>Link externo</label>' +
+        '<input type="url" name="link" value="' + esc(e.link) + '" ' +
+        'placeholder="https://..."></div>' +
+        '<div class="campo"><label>Responsável</label>' +
+        '<input type="text" name="responsavel" value="' + esc(e.responsavel) + '"></div>' +
+        '<div class="campo"><label>Observação</label>' +
+        '<input type="text" name="descricao" value="' + esc(e.descricao) + '"></div>' +
+        '</div>' +
+        camposVinculoForm(e) +
+        anexosEdicaoHtml(e, 'data-apagar-anexo-evidencia'),
+      nota:
+        '<p class="pequeno suave">O protocolo' + (propria ? '' : ' e o requisito') +
+        ' identificam o registro e não mudam ao editar.</p>'
+    });
+  }
+
+  /** Medição de uma métrica. */
+  function formEdicaoMedicao(m, met) {
+    return formEdicao({
+      form: 'form-medicao-editar',
+      cancelar: 'btn-med-cancelar',
+      titulo: 'Editar medição' +
+        (met && met.unidade ? ' <span class="suave pequeno">(' + esc(met.unidade) + ')</span>' : ''),
+      campos:
+        '<div class="linha-campos tres">' +
+        '<div class="campo"><label>Valor medido</label>' +
+        '<input type="number" name="valor" step="any" required value="' + esc(m.valor) + '"></div>' +
+        '<div class="campo"><label>Data da medição</label>' +
+        '<input type="date" name="data" value="' + esc(m.data) + '" required></div>' +
+        '<div class="campo"><label>Observação</label>' +
+        '<input type="text" name="observacao" value="' + esc(m.observacao) + '"></div>' +
+        '</div>'
+    });
+  }
+
+  /** Revisão crítica. */
+  function formEdicaoRevisao(r) {
+    return formEdicao({
+      form: 'form-revisao-editar',
+      cancelar: 'btn-rev-cancelar',
+      titulo: 'Editar revisão crítica',
+      campos:
+        '<div class="linha-campos">' +
+        '<div class="campo"><label>Data da revisão</label>' +
+        '<input type="date" name="data" value="' + esc(r.data) + '" required></div>' +
+        '<div class="campo"><label>Período avaliado</label>' +
+        '<input type="text" name="periodo" value="' + esc(r.periodo) + '" ' +
+        'placeholder="ex.: 2º semestre de 2025"></div>' +
+        '</div>' +
+        '<div class="campo"><label>Eficiência (produtividade: fizemos com os recursos previstos?)</label>' +
+        '<textarea name="eficiencia">' + esc(r.eficiencia) + '</textarea></div>' +
+        '<div class="campo"><label>Eficácia (qualidade: atingimos o que planejamos?)</label>' +
+        '<textarea name="eficacia">' + esc(r.eficacia) + '</textarea></div>' +
+        '<div class="campo"><label>Efetividade (impacto: gerou o resultado esperado?)</label>' +
+        '<textarea name="efetividade">' + esc(r.efetividade) + '</textarea></div>' +
+        '<div class="campo caixa-marcar">' +
+        '<input type="checkbox" id="rev-ed-ajustes" name="necessita_ajustes"' +
+        (r.necessita_ajustes ? ' checked' : '') + '>' +
+        '<label for="rev-ed-ajustes">Necessita ajustes</label></div>' +
+        '<div class="campo"><label>Observações</label>' +
+        '<textarea name="observacoes">' + esc(r.observacoes) + '</textarea></div>'
+    });
+  }
+
+  /** Plano de ação. */
+  function formEdicaoPlano(p) {
+    return formEdicao({
+      form: 'form-plano-editar',
+      cancelar: 'btn-plano-cancelar',
+      naLista: true,
+      titulo: 'Editar plano de ação',
+      campos:
+        '<div class="campo"><label>Descrição da ação</label>' +
+        '<textarea name="descricao" required>' + esc(p.descricao) + '</textarea></div>' +
+        '<div class="linha-campos tres">' +
+        '<div class="campo"><label>Responsável</label>' +
+        '<input type="text" name="responsavel" value="' + esc(p.responsavel) + '"></div>' +
+        '<div class="campo"><label>Prazo</label>' +
+        '<input type="date" name="prazo" value="' + esc(p.prazo) + '"></div>' +
+        '<div class="campo"><label>Situação</label>' +
+        '<select name="situacao">' + opcoes(Store.SITUACOES_PLANO, p.situacao) + '</select></div>' +
+        '</div>'
+    });
+  }
+
+  /* ---- gravação das edições da tela da prática ---- */
+
+  /** Grava a edição da evidência. O requisito do modelo e o protocolo não são
+   *  enviados: eles identificam o registro. Os anexos só entram na gravação
+   *  quando a pessoa escolheu arquivo novo — e, nesse caso, depois de ele
+   *  estar no armazenamento. */
+  function salvarEdicaoEvidencia(form) {
+    if (!Store.podeEditar()) return;
+    var atual = registroPorId('evidencias', evidenciaEmEdicao);
+    if (!atual) {
+      evidenciaEmEdicao = null;
+      avisar('Esta evidência não existe mais.');
+      renderizar();
+      return;
+    }
+    var d = dadosDoForm(form);
+    if (!d.titulo || !d.titulo.trim()) {
+      avisar('Informe o título da evidência.');
+      return;
+    }
+    var dados = {
+      titulo: d.titulo.trim(),
+      data_referencia: d.data_referencia || '',
+      link: (d.link || '').trim(),
+      responsavel: (d.responsavel || '').trim(),
+      descricao: (d.descricao || '').trim(),
+      empreendimento: (d.empreendimento || '').trim(),
+      programa: (d.programa || '').trim(),
+      atividade: (d.atividade || '').trim(),
+      tipo_documento: (d.tipo_documento || '').trim()
+    };
+    // Só a evidência própria do parque tem "A que se refere".
+    if (!atual.requisito) dados.refere_a = (d.refere_a || '').trim();
+
+    salvarEdicaoComAnexos({
+      form: form,
+      novos: podeAnexar() ? listaDeArquivos(d.arquivo) : [],
+      atuais: global.Regras.anexosDoRegistro(atual),
+      enviarUm: function (arquivo, indice, aoProgresso) {
+        return Store.enviarArquivo(
+          atual.pratica, dados.data_referencia, arquivo, aoProgresso, indice
+        );
+      },
+      gravar: function (anexos) {
+        return Store.atualizarEm('evidencias', atual.id,
+          anexos ? itemAtualizado(dados, camposDeAnexos(anexos)) : dados);
+      },
+      concluir: function (quantos) {
+        evidenciaEmEdicao = null;
+        avisar(avisoEdicaoSalva('Evidência atualizada', quantos));
+        renderizar();
+      }
+    });
+  }
+
+  /** "Apagar" de um dos anexos da evidência em edição. */
+  function apagarAnexoDeEvidencia(chave) {
+    var atual = registroPorId('evidencias', evidenciaEmEdicao);
+    if (!atual) return;
+    apagarAnexoEmEdicao({
+      registro: atual,
+      chave: chave,
+      deste: 'desta evidência',
+      semArquivo: ' A evidência segue valendo para o requisito.',
+      gravar: function (restantes) {
+        return Store.atualizarEm('evidencias', atual.id, camposDeAnexos(restantes));
+      }
+    });
+  }
+
+  function salvarEdicaoMedicao(form) {
+    if (!Store.podeEditar()) return;
+    var atual = registroPorId('medicoes', medicaoEmEdicao);
+    if (!atual) {
+      medicaoEmEdicao = null;
+      avisar('Esta medição não existe mais.');
+      renderizar();
+      return;
+    }
+    var d = dadosDoForm(form);
+    if (d.valor === '' || d.valor === undefined || isNaN(Number(d.valor))) {
+      avisar('Informe o valor medido.');
+      return;
+    }
+    Store.atualizarEm('medicoes', atual.id, {
+      valor: Number(d.valor),
+      data: d.data || atual.data || hoje(),
+      observacao: (d.observacao || '').trim()
+    });
+    medicaoEmEdicao = null;
+    avisar('Medição atualizada.');
+    renderizar();
+  }
+
+  function salvarEdicaoRevisao(form) {
+    if (!Store.podeEditar()) return;
+    var atual = registroPorId('revisoes', revisaoEmEdicao);
+    if (!atual) {
+      revisaoEmEdicao = null;
+      avisar('Esta revisão crítica não existe mais.');
+      renderizar();
+      return;
+    }
+    var d = dadosDoForm(form);
+    Store.atualizarEm('revisoes', atual.id, {
+      data: d.data || atual.data || hoje(),
+      periodo: (d.periodo || '').trim(),
+      eficiencia: d.eficiencia || '',
+      eficacia: d.eficacia || '',
+      efetividade: d.efetividade || '',
+      necessita_ajustes: !!d.necessita_ajustes,
+      observacoes: d.observacoes || ''
+    });
+    revisaoEmEdicao = null;
+    avisar('Revisão crítica atualizada.');
+    renderizar();
+  }
+
+  function salvarEdicaoPlano(form) {
+    if (!Store.podeEditar()) return;
+    var atual = registroPorId('planos', planoEmEdicao);
+    if (!atual) {
+      planoEmEdicao = null;
+      avisar('Este plano de ação não existe mais.');
+      renderizar();
+      return;
+    }
+    var d = dadosDoForm(form);
+    if (!d.descricao || !d.descricao.trim()) {
+      avisar('Informe a descrição da ação.');
+      return;
+    }
+    Store.atualizarEm('planos', atual.id, {
+      descricao: d.descricao.trim(),
+      responsavel: (d.responsavel || '').trim(),
+      prazo: d.prazo || '',
+      situacao: d.situacao || atual.situacao || 'aberto'
+    });
+    planoEmEdicao = null;
+    avisar('Plano de ação atualizado.');
+    renderizar();
   }
 
   /* -------------------------------------------------------- empreendimentos */
@@ -1740,24 +2440,45 @@
    *  programa e/ou uma atividade. Todos os campos são opcionais; o dropdown de
    *  empreendimento lista as startups já cadastradas e o de atividade lista as
    *  atividades registradas (protocolo + título). Usada nos dois formulários de
-   *  evidência da tela da prática. */
-  function camposVinculoForm() {
+   *  evidência da tela da prática e, com os valores atuais, no formulário de
+   *  edição da evidência. */
+  function camposVinculoForm(valores) {
+    // No cadastro não há valores; na edição vêm os da evidência, e as opções
+    // já aparecem escolhidas. Se o vínculo aponta para algo que não existe
+    // mais, a opção atual é mantida para a edição não apagar o vínculo sem
+    // querer — mesmo cuidado da edição de atividades.
+    var v = valores || {};
     var emps = (Store.estado().empreendimentos) || [];
+    var achouEmp = !v.empreendimento;
     var opcoesEmp = '<option value="">— nenhum —</option>' + emps.map(function (e) {
-      return '<option value="' + esc(e.id) + '">' + esc(e.nome) +
+      if (e.id === v.empreendimento) achouEmp = true;
+      return '<option value="' + esc(e.id) + '"' +
+        (e.id === v.empreendimento ? ' selected' : '') + '>' + esc(e.nome) +
         (e.codigo ? ' (' + esc(e.codigo) + ')' : '') + '</option>';
     }).join('');
+    if (!achouEmp) {
+      opcoesEmp += '<option value="' + esc(v.empreendimento) + '" selected>' +
+        '(empreendimento removido)</option>';
+    }
     var atvs = (Store.estado().atividades) || [];
+    var achouAtv = !v.atividade;
     var opcoesAtv = '<option value="">— nenhuma —</option>' + atvs.map(function (a) {
       var rotulo = (a.protocolo ? a.protocolo + ' · ' : '') + (a.titulo || '(sem título)');
-      return '<option value="' + esc(a.id) + '">' + esc(rotulo) + '</option>';
+      if (a.id === v.atividade) achouAtv = true;
+      return '<option value="' + esc(a.id) + '"' +
+        (a.id === v.atividade ? ' selected' : '') + '>' + esc(rotulo) + '</option>';
     }).join('');
+    if (!achouAtv) {
+      opcoesAtv += '<option value="' + esc(v.atividade) + '" selected>' +
+        '(atividade removida)</option>';
+    }
     return (
       '<div class="linha-campos">' +
       '<div class="campo"><label>Vincular a empreendimento (opcional)</label>' +
       '<select name="empreendimento">' + opcoesEmp + '</select></div>' +
       '<div class="campo"><label>Programa (opcional)</label>' +
-      '<input type="text" name="programa" placeholder="ex.: Projeto MUDA 2026/1"></div>' +
+      '<input type="text" name="programa" value="' + esc(v.programa) + '" ' +
+      'placeholder="ex.: Projeto MUDA 2026/1"></div>' +
       '</div>' +
       '<div class="campo"><label>Vincular a atividade (opcional)</label>' +
       '<select name="atividade">' + opcoesAtv + '</select></div>' +
@@ -1766,7 +2487,7 @@
       '<div class="campo"><label>Tipo do documento (opcional)</label>' +
       '<select name="tipo_documento">' +
       '<option value="">— não informado —</option>' +
-      opcoes(Store.TIPOS_DOCUMENTO || [], '') + '</select></div>'
+      opcoes(Store.TIPOS_DOCUMENTO || [], v.tipo_documento || '') + '</select></div>'
     );
   }
 
@@ -1793,11 +2514,23 @@
 
   var empreendimentoAtual = null;
 
+  // Id da avaliação de eixo / do documento em edição no detalhe do
+  // empreendimento (null = nenhum). Os dois ficam guardados dentro do
+  // documento do empreendimento, em `avaliacoes` e `documentos`.
+  var avaliacaoEmEdicao = null;
+  var documentoEmEdicao = null;
+
   Telas.empreendimento = function (id) {
     var e = Store.empreendimentoPorId(id);
     if (!e) {
       return '<div class="aviso erro">Empreendimento não encontrado. ' +
         '<a href="#/empreendimentos">Voltar à lista</a>.</div>';
+    }
+    // Ao abrir outro empreendimento, descarta a edição aberta: o registro em
+    // edição é do empreendimento anterior.
+    if (empreendimentoAtual !== id) {
+      avaliacaoEmEdicao = null;
+      documentoEmEdicao = null;
     }
     empreendimentoAtual = id;
     var somenteLeitura = !Store.podeEditar();
@@ -1813,9 +2546,18 @@
           '<td>' + dataBR(a.data) + '</td>' +
           '<td>' + esc(a.observacao || '') + '</td>' +
           (somenteLeitura ? '' :
-            '<td class="numero nao-imprimir"><button type="button" class="botao secundario pequeno" ' +
+            '<td class="numero nao-imprimir">' +
+            '<button type="button" class="botao secundario pequeno" ' +
+            'data-editar-avaliacao="' + esc(a.id) + '">Editar</button> ' +
+            '<button type="button" class="botao secundario pequeno" ' +
             'data-remover-avaliacao="' + esc(a.id) + '">Remover</button></td>') +
-          '</tr>'
+          '</tr>' +
+          // O formulário de edição ocupa uma linha inteira da tabela, logo
+          // abaixo da avaliação que está sendo editada.
+          (somenteLeitura || avaliacaoEmEdicao !== a.id
+            ? ''
+            : '<tr class="nao-imprimir"><td colspan="5">' +
+              formEdicaoAvaliacao(a) + '</td></tr>')
         );
       }).join('');
 
@@ -1858,7 +2600,10 @@
             '</span></span>' +
             (somenteLeitura ? '' :
               '<button type="button" class="botao secundario pequeno nao-imprimir" ' +
+              'data-editar-documento="' + esc(d.id) + '">Editar</button> ' +
+              '<button type="button" class="botao secundario pequeno nao-imprimir" ' +
               'data-remover-documento="' + esc(d.id) + '">Remover</button>') +
+            (somenteLeitura || documentoEmEdicao !== d.id ? '' : formEdicaoDocumento(d)) +
             '</li>'
           );
         }).join('') + '</ul>'
@@ -2012,6 +2757,27 @@
       }
     );
 
+    ligarEdicoes([
+      {
+        atributo: 'data-editar-avaliacao',
+        form: 'form-avaliacao-editar',
+        cancelar: 'btn-av-cancelar',
+        abrir: function (alvo) { avaliacaoEmEdicao = alvo; },
+        salvar: salvarEdicaoAvaliacao
+      },
+      {
+        atributo: 'data-editar-documento',
+        form: 'form-documento-editar',
+        cancelar: 'btn-doc-cancelar',
+        abrir: function (alvo) { documentoEmEdicao = alvo; },
+        salvar: salvarEdicaoDocumento,
+        anexos: {
+          atributo: 'data-apagar-anexo-documento',
+          apagar: apagarAnexoDeDocumento
+        }
+      }
+    ]);
+
     // Local, estágio e situação mudam ao longo da vida do empreendimento: a
     // empresa troca de sala, a incubada gradua, a graduada pode continuar no
     // parque como residente. Antes só existia o botão "marcar como graduado",
@@ -2086,6 +2852,170 @@
       }
     );
   };
+
+  /* ---- edição dos registros do empreendimento ----
+
+     Avaliações de eixo e documentos ficam DENTRO do documento do
+     empreendimento, em `avaliacoes` e `documentos`. A gravação substitui o
+     item no array e manda o array inteiro por Store.atualizarEm, exatamente
+     como a remoção desses dois já faz. */
+
+  /** Avaliação de eixo. */
+  function formEdicaoAvaliacao(a) {
+    return formEdicao({
+      form: 'form-avaliacao-editar',
+      cancelar: 'btn-av-cancelar',
+      titulo: 'Editar avaliação de eixo',
+      campos:
+        '<div class="linha-campos tres">' +
+        '<div class="campo"><label>Eixo</label>' +
+        '<select name="eixo">' + opcoes(Store.EIXOS, a.eixo) + '</select></div>' +
+        '<div class="campo"><label>Nota (0 a 5)</label>' +
+        '<input type="number" name="nota" min="0" max="5" step="1" value="' +
+        esc(a.nota) + '" required></div>' +
+        '<div class="campo"><label>Data</label>' +
+        '<input type="date" name="data" value="' + esc(a.data) + '" required></div>' +
+        '</div>' +
+        '<div class="campo"><label>Observação</label>' +
+        '<input type="text" name="observacao" value="' + esc(a.observacao) + '"></div>'
+    });
+  }
+
+  /** Documento do empreendimento. */
+  function formEdicaoDocumento(d) {
+    return formEdicao({
+      form: 'form-documento-editar',
+      cancelar: 'btn-doc-cancelar',
+      naLista: true,
+      titulo: 'Editar documento',
+      campos:
+        '<div class="linha-campos">' +
+        '<div class="campo"><label>Título</label>' +
+        '<input type="text" name="titulo" required value="' + esc(d.titulo) + '"></div>' +
+        '<div class="campo"><label>Data de referência</label>' +
+        '<input type="date" name="data_referencia" value="' + esc(d.data_referencia) + '"></div>' +
+        '</div>' +
+        '<div class="linha-campos">' +
+        '<div class="campo"><label>Link externo</label>' +
+        '<input type="url" name="link" value="' + esc(d.link) + '" ' +
+        'placeholder="https://..."></div>' +
+        '<div class="campo"><label>Descrição</label>' +
+        '<input type="text" name="descricao" value="' + esc(d.descricao) + '"></div>' +
+        '</div>' +
+        anexosEdicaoHtml(d, 'data-apagar-anexo-documento')
+    });
+  }
+
+  function salvarEdicaoAvaliacao(form) {
+    if (!Store.podeEditar()) return;
+    var e = Store.empreendimentoPorId(empreendimentoAtual);
+    var atual = e && (e.avaliacoes || []).filter(function (a) {
+      return a.id === avaliacaoEmEdicao;
+    })[0];
+    if (!atual) {
+      avaliacaoEmEdicao = null;
+      avisar('Esta avaliação não existe mais.');
+      renderizar();
+      return;
+    }
+    var d = dadosDoForm(form);
+    if (d.nota === '' || d.nota === undefined || isNaN(Number(d.nota))) {
+      avisar('Informe a nota de 0 a 5.');
+      return;
+    }
+    var mudancas = {
+      eixo: d.eixo || atual.eixo,
+      nota: Math.max(0, Math.min(5, Number(d.nota))),
+      data: d.data || atual.data || hoje(),
+      observacao: (d.observacao || '').trim()
+    };
+    Store.atualizarEm('empreendimentos', e.id, {
+      avaliacoes: (e.avaliacoes || []).map(function (a) {
+        return a.id === atual.id ? itemAtualizado(a, mudancas) : a;
+      })
+    });
+    avaliacaoEmEdicao = null;
+    avisar('Avaliação atualizada.');
+    renderizar();
+  }
+
+  function salvarEdicaoDocumento(form) {
+    if (!Store.podeEditar()) return;
+    var e = Store.empreendimentoPorId(empreendimentoAtual);
+    var atual = e && (e.documentos || []).filter(function (x) {
+      return x.id === documentoEmEdicao;
+    })[0];
+    if (!atual) {
+      documentoEmEdicao = null;
+      avisar('Este documento não existe mais.');
+      renderizar();
+      return;
+    }
+    var d = dadosDoForm(form);
+    if (!d.titulo || !d.titulo.trim()) {
+      avisar('Informe o título do documento.');
+      return;
+    }
+    var mudancas = {
+      titulo: d.titulo.trim(),
+      data_referencia: d.data_referencia || '',
+      link: (d.link || '').trim(),
+      descricao: (d.descricao || '').trim()
+    };
+
+    // O envio do documento tem função própria no Store; sem ela (modo local)
+    // a edição é só de metadados, como no formulário de cadastro.
+    var podeEmp = podeAnexar() &&
+      typeof Store.enviarArquivoEmpreendimento === 'function';
+
+    salvarEdicaoComAnexos({
+      form: form,
+      novos: podeEmp ? listaDeArquivos(d.arquivo) : [],
+      atuais: global.Regras.anexosDoRegistro(atual),
+      enviarUm: function (arquivo, indice, aoProgresso) {
+        return Store.enviarArquivoEmpreendimento(
+          e.id, mudancas.data_referencia, arquivo, aoProgresso, indice
+        );
+      },
+      gravar: function (anexos) {
+        var completo = anexos
+          ? itemAtualizado(mudancas, camposDeAnexos(anexos))
+          : mudancas;
+        return Store.atualizarEm('empreendimentos', e.id, {
+          documentos: (e.documentos || []).map(function (x) {
+            return x.id === atual.id ? itemAtualizado(x, completo) : x;
+          })
+        });
+      },
+      concluir: function (quantos) {
+        documentoEmEdicao = null;
+        avisar(avisoEdicaoSalva('Documento atualizado', quantos));
+        renderizar();
+      }
+    });
+  }
+
+  /** "Apagar" de um dos anexos do documento em edição. */
+  function apagarAnexoDeDocumento(chave) {
+    var e = Store.empreendimentoPorId(empreendimentoAtual);
+    var atual = e && (e.documentos || []).filter(function (x) {
+      return x.id === documentoEmEdicao;
+    })[0];
+    if (!atual) return;
+    apagarAnexoEmEdicao({
+      registro: atual,
+      chave: chave,
+      deste: 'deste documento',
+      gravar: function (restantes) {
+        return Store.atualizarEm('empreendimentos', e.id, {
+          documentos: (e.documentos || []).map(function (x) {
+            return x.id === atual.id
+              ? itemAtualizado(x, camposDeAnexos(restantes)) : x;
+          })
+        });
+      }
+    });
+  }
 
   /** Anexa um documento ao empreendimento. No modo nuvem, envia o arquivo
    *  primeiro (para o caminho empreendimentos/{id}/{ano}/) e só então grava o
